@@ -88,8 +88,8 @@ jobs:
         shell: bash
         run: |
           # Ensure the extraction directory is clean before expanding the PKG.
+          # pkgutil --expand will create the directory if it doesn't exist.
           rm -rf input/extracted_edge_pkg
-          mkdir -p input/extracted_edge_pkg
           
           # Extract the PKG contents using 'pkgutil --expand'. This is a more reliable way
           # to extract Apple packages for versioning info.
