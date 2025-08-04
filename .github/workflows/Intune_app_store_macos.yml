@@ -49,7 +49,7 @@ jobs:
           # Define a mount point for the DMG.
           mount_point="/Volumes/GoogleChromeInstaller"
           # Attach the DMG. The -nobrowse option prevents it from appearing in Finder.
-          # The -quiet option suppresses verbose output.
+          # The -quiet option suppresses verbose verbose output.
           hdiutil attach input/GoogleChrome.dmg -readonly -nobrowse -quiet -mountpoint "$mount_point"
 
           # Extract the version from the Google Chrome.app/Contents/Info.plist inside the mounted DMG.
@@ -88,7 +88,6 @@ jobs:
         shell: bash
         run: |
           # Ensure the extraction directory is clean before expanding the PKG.
-          # pkgutil --expand will create the directory if it doesn't exist.
           rm -rf input/extracted_edge_pkg
           
           # Extract the PKG contents using 'pkgutil --expand'. This is a more reliable way
@@ -96,11 +95,17 @@ jobs:
           pkgutil --expand input/MicrosoftEdge.pkg input/extracted_edge_pkg
 
           # Find the Info.plist within the extracted package.
-          # The actual path might vary, so we use find.
-          info_plist_path=$(find input/extracted_edge_pkg -name "Info.plist" | grep "Microsoft Edge.app" | head -n 1)
+          # A more robust find: look for any Info.plist within an .app bundle.
+          info_plist_path=$(find input/extracted_edge_pkg -type f -name "Info.plist" | grep ".app/Contents/Info.plist" | head -n 1)
+
+          # Debugging: Print the found path
+          echo "Found Info.plist path: $info_plist_path"
 
           if [ -z "$info_plist_path" ]; then
             echo "Error: Could not find Info.plist within the extracted Edge package."
+            # Debugging: List contents of the extracted directory if Info.plist not found
+            echo "Contents of input/extracted_edge_pkg (for debugging):"
+            ls -R input/extracted_edge_pkg
             exit 1
           fi
 
@@ -175,7 +180,6 @@ jobs:
           fi
           echo "GIT_VERSION=$version" >> $GITHUB_ENV
           # Rename the PKG to include the extracted version.
-          # Corrected: Use ${{ env.GIT_VERSION }} to properly substitute the environment variable.
           mv input/GitInstaller.pkg output/Git-for-MacOS-${{ env.GIT_VERSION }}.pkg
 
       - name: Upload Git artifact
