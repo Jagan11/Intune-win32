@@ -20,9 +20,14 @@ jobs:
         run: |
           Invoke-WebRequest -Uri "https://dl.google.com/chrome/install/375.126/chrome_installer.exe" -OutFile "input\ChromeSetup.exe"
 
+      - name: Check IntuneWinAppUtil.zip existence
+        run: |
+          Test-Path '.github\workflows\IntuneWinAppUtil.zip'
+          Get-ChildItem .github\workflows\
+
       - name: Extract IntuneWinAppUtil.zip
         run: |
-          Expand-Archive -Path .github/workflows/IntuneWinAppUtil.zip -DestinationPath . -Force
+          Expand-Archive -Path '.github\workflows\IntuneWinAppUtil.zip' -DestinationPath '.' -Force
 
       - name: Package using IntuneWinAppUtil
         run: |
