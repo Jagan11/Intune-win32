@@ -1,0 +1,171 @@
+name: Package Apps for macOS
+
+on:
+  workflow_dispatch: # Allows manual triggering of the workflow
+
+jobs:
+  vscode:
+    runs-on: macos-latest # Specifies that this job runs on the latest macOS runner
+    steps:
+      - name: Prepare directories
+        run: mkdir -p input output # Create 'input' for downloads and 'output' for packaged files
+
+      - name: Download latest VSCode ZIP
+        shell: bash
+        run: |
+          # Fetch the latest stable VSCode version string from the update API.
+          # jq is used to parse the JSON response and extract the last element (latest version).
+          latest=$(curl -s https://update.code.visualstudio.com/api/releases/stable | jq -r '.[-1]')
+          # Set the VSCODE_VERSION as an environment variable for subsequent steps.
+          echo "VSCODE_VERSION=$latest" >> $GITHUB_ENV
+          # Download the VSCode macOS zip installer.
+          curl -L "https://update.code.visualstudio.com/${latest}/darwin/stable" -o input/VSCode.zip
+
+      - name: Rename VSCode ZIP
+        # Rename the downloaded zip to include the version number.
+        run: mv input/VSCode.zip output/VSCode-macOS-${{ env.VSCODE_VERSION }}.zip
+
+      - name: Upload VSCode artifact
+        uses: actions/upload-artifact@v4 # Action to upload workflow artifacts
+        with:
+          name: vscode-macos # Name of the artifact
+          path: output/*.zip # Path to the packaged zip file(s)
+
+  chrome:
+    runs-on: macos-latest
+    steps:
+      - name: Prepare directories
+        run: mkdir -p input output
+
+      - name: Download latest Chrome DMG
+        shell: bash
+        run: |
+          # Download the Google Chrome offline DMG installer for Mac. This URL is a stable redirect.
+          curl -L "https://dl.google.com/chrome/mac/stable/GGRO/googlechrome.dmg" -o input/GoogleChrome.dmg
+
+      - name: Get Chrome installer version and rename DMG
+        shell: bash
+        run: |
+          # Mount the DMG to access its contents.
+          # The -readonly flag prevents accidental modifications.
+          # The -mountpoint option specifies where to mount it.
+          mount_point="/Volumes/GoogleChromeInstaller"
+          hdiutil attach input/GoogleChrome.dmg -readonly -mountpoint "$mount_point"
+
+          # Extract the version from the Google Chrome.app/Contents/Info.plist inside the mounted DMG.
+          # PlistBuddy is used to read specific keys from plist files.
+          version=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$mount_point/Google Chrome.app/Contents/Info.plist")
+          echo "CHROME_VERSION=$version" >> $GITHUB_ENV
+
+          # Unmount the DMG.
+          hdiutil detach "$mount_point"
+
+          # Rename the downloaded DMG to include the extracted version number.
+          mv input/GoogleChrome.dmg output/GoogleChrome-macOS-${{ env.CHROME_VERSION }}.dmg
+
+      - name: Upload Chrome artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-macos
+          path: output/*.dmg
+
+  edge:
+    runs-on: macos-latest
+    steps:
+      - name: Prepare directories
+        run: mkdir -p input output
+
+      - name: Download Microsoft Edge PKG
+        shell: bash
+        run: |
+          # This URL is a Microsoft redirect that typically points to the latest stable Edge installer.
+          # Note: This direct URL might require occasional verification if Microsoft changes its distribution.
+          url="https://go.microsoft.com/fwlink/?linkid=2069148&platform=Mac&channel=Stable" # More specific stable link
+          echo "Downloading Edge from: $url"
+          curl -L "$url" -o input/MicrosoftEdge.pkg
+          # No built-in version fetch API from a web endpoint, so we'll extract from the PKG.
+
+      - name: Get Edge installer version and rename PKG
+        shell: bash
+        run: |
+          # Extract the version directly from the downloaded PKG file using pkgutil.
+          version=$(pkgutil --pkg-info input/MicrosoftEdge.pkg | awk '/version:/{print $2}')
+          echo "EDGE_VERSION=$version" >> $GITHUB_ENV
+          # Rename the PKG to include the extracted version.
+          mv input/MicrosoftEdge.pkg output/MicrosoftEdge-macOS-${{ env.EDGE_VERSION }}.pkg
+
+      - name: Upload Edge artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-macos
+          path: output/*.pkg
+
+  nodejs:
+    runs-on: macos-latest
+    steps:
+      - name: Prepare directories
+        run: mkdir -p input output
+
+      - name: Download latest Node.js LTS PKG
+        shell: bash
+        run: |
+          # Fetch the JSON index of all Node.js releases.
+          data=$(curl -s https://nodejs.org/dist/index.json)
+          # Filter for the latest LTS (Long Term Support) release and extract its version, removing the 'v' prefix.
+          version=$(echo "$data" | jq -r '.[] | select(.lts!=null) | .version' | head -n1 | sed 's/^v//')
+          echo "NODEJS_VERSION=$version" >> $GITHUB_ENV
+          # Construct the download URL for the macOS PKG installer.
+          curl -L "https://nodejs.org/dist/v$version/node-v$version.pkg" -o input/NodeJS.pkg
+
+      - name: Rename Node.js installer
+        # Rename the downloaded PKG to include the version number.
+        run: mv input/NodeJS.pkg output/NodeJS-macOS-${{ env.NODEJS_VERSION }}.pkg
+
+      - name: Upload Node.js artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nodejs-macos
+          path: output/*.pkg
+
+  git:
+    runs-on: macos-latest
+    steps:
+      - name: Prepare directories
+        run: mkdir -p input output
+
+      - name: Get latest Git for Mac PKG from GitHub and download
+        shell: bash
+        run: |
+          # IMPORTANT: Changed repository from 'git-for-windows/git' to 'git-for-mac/git'
+          # to fetch the correct macOS installer.
+          resp=$(curl -s https://api.github.com/repos/git-for-mac/git/releases/latest)
+          # Find the PKG asset in the latest release.
+          pkg_url=$(echo "$resp" | jq -r '.assets[] | select(.name | test("git-[0-9.]+-intel-universal-mavericks.pkg$|git-[0-9.]+-x86_64-apple-darwin.pkg$|git-[0-9.]+-arm64-apple-darwin.pkg$")) | .browser_download_url' | head -n1)
+          
+          if [ -z "$pkg_url" ]; then
+            echo "Error: Could not find a suitable Git for Mac PKG installer URL."
+            exit 1
+          fi
+
+          # Extract filename from URL for consistent naming.
+          installer_filename=$(basename "$pkg_url")
+          echo "GIT_INSTALLER_FILENAME=$installer_filename" >> $GITHUB_ENV
+          echo "Downloading Git for Mac from: $pkg_url"
+          curl -L "$pkg_url" -o "input/$installer_filename"
+
+      - name: Get Git installer version and rename PKG
+        shell: bash
+        run: |
+          # Use the dynamic filename from the environment variable.
+          installer_path="input/${{ env.GIT_INSTALLER_FILENAME }}"
+          # Extract the version directly from the downloaded PKG file using pkgutil.
+          version=$(pkgutil --pkg-info "$installer_path" | awk '/version:/{print $2}')
+          echo "GIT_VERSION=$version" >> $GITHUB_ENV
+          # Rename the PKG to include the extracted version.
+          mv "$installer_path" "output/Git-for-MacOS-${{ env.GIT_VERSION }}.pkg"
+
+      - name: Upload Git artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: git-macos
+          path: output/*.pkg
