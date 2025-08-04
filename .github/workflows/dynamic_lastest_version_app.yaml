@@ -1,0 +1,81 @@
+name: Package Apps as IntuneWin
+
+on:
+  workflow_dispatch:
+
+jobs:
+  vscode:
+    runs-on: windows-latest
+    steps:
+      - name: Create directories
+        run: |
+          New-Item -Path input -ItemType Directory
+          New-Item -Path output -ItemType Directory
+
+      - name: Get latest VSCode x64 installer URL and download
+        shell: pwsh
+        run: |
+          $json = Invoke-RestMethod -Uri "https://update.code.visualstudio.com/api/releases/stable"
+          $latestVersion = $json[-1]
+          Write-Host "Latest VSCode version: $latestVersion"
+          $downloadUrl = "https://update.code.visualstudio.com/$latestVersion/win32-x64/stable"
+          Write-Host "Downloading VSCode from: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\VSCodeSetup.exe"
+
+      - name: Print VSCode installer version
+        shell: pwsh
+        run: |
+          $version = (Get-Item "input\VSCodeSetup.exe").VersionInfo.ProductVersion
+          Write-Host "VSCode installer version: $version"
+
+      - name: Download Microsoft Win32 Content Prep Tool
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+
+      - name: Package VSCode using IntuneWinAppUtil
+        run: |
+          .\IntuneWinAppUtil.exe -c ".\input" -s "VSCodeSetup.exe" -o ".\output" -q
+
+      - name: Upload VSCode package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-intunewin
+          path: output/*.intunewin
+
+  chrome:
+    runs-on: windows-latest
+    steps:
+      - name: Create directories
+        run: |
+          New-Item -Path input -ItemType Directory
+          New-Item -Path output -ItemType Directory
+
+      - name: Get latest Chrome stable version and download offline installer
+        shell: pwsh
+        run: |
+          $chromeJson = Invoke-RestMethod -Uri "https://chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Windows"
+          $latestVersion = $chromeJson[0].version
+          Write-Host "Latest Chrome stable version: $latestVersion"
+          $downloadUrl = "https://dl.google.com/chrome/install/$latestVersion/chrome_installer.exe"
+          Write-Host "Downloading Chrome from: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\ChromeSetup.exe"
+
+      - name: Print Google Chrome installer version
+        shell: pwsh
+        run: |
+          $version = (Get-Item "input\ChromeSetup.exe").VersionInfo.ProductVersion
+          Write-Host "Google Chrome installer version: $version"
+
+      - name: Download Microsoft Win32 Content Prep Tool
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+
+      - name: Package Chrome using IntuneWinAppUtil
+        run: |
+          .\IntuneWinAppUtil.exe -c ".\input" -s "ChromeSetup.exe" -o ".\output" -q
+
+      - name: Upload Chrome package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-intunewin
+          path: output/*.intunewin
