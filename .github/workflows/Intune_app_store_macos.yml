@@ -100,7 +100,9 @@ jobs:
 
           # Find the Info.plist within the extracted package.
           # This command looks for any Info.plist file that is part of an application bundle's Contents directory.
-          info_plist_path=$(find input/extracted_edge_pkg -type f -path "*/Contents/Info.plist" | head -n 1)
+          # Changed `grep "Microsoft Edge.app"` to a more general `grep "/Contents/Info.plist"`
+          # as the top-level directory name might vary or be a GUID.
+          info_plist_path=$(find input/extracted_edge_pkg -type f -name "Info.plist" | grep "/Contents/Info.plist" | head -n 1)
 
           # Debugging: Print the found path
           echo "Found Info.plist path: $info_plist_path"
@@ -118,6 +120,7 @@ jobs:
           rm -rf input/extracted_edge_pkg
 
           # Rename the PKG to include the extracted version.
+          # Corrected: Use ${{ env.EDGE_VERSION }} to properly substitute the environment variable.
           mv input/MicrosoftEdge.pkg output/MicrosoftEdge-macOS-${{ env.EDGE_VERSION }}.pkg
 
       - name: Upload Edge artifact
