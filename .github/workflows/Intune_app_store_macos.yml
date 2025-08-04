@@ -87,10 +87,12 @@ jobs:
       - name: Get Edge installer version and rename PKG
         shell: bash
         run: |
-          # Create a temporary directory to extract the PKG contents.
+          # Ensure the extraction directory is clean before expanding the PKG.
+          rm -rf input/extracted_edge_pkg
           mkdir -p input/extracted_edge_pkg
+          
           # Extract the PKG contents using 'pkgutil --expand'. This is a more reliable way
-          # to extract Apple packages than 'xar' for versioning info.
+          # to extract Apple packages for versioning info.
           pkgutil --expand input/MicrosoftEdge.pkg input/extracted_edge_pkg
 
           # Find the Info.plist within the extracted package.
