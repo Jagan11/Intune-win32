@@ -1,0 +1,32 @@
+name: Package Google Chrome as IntuneWin
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-intunewin:
+    runs-on: windows-latest
+
+    steps:
+      - name: Create directories
+        run: |
+          New-Item -Path input -ItemType Directory
+          New-Item -Path output -ItemType Directory
+
+      - name: Download Google Chrome Offline Installer (Enterprise)
+        run: |
+          Invoke-WebRequest -Uri "https://dl.google.com/chrome/install/375.126/chrome_installer.exe" -OutFile "input\ChromeSetup.exe"
+
+      - name: Download Microsoft Win32 Content Prep Tool 
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+
+      - name: Package using IntuneWinAppUtil
+        run: |
+          .\IntuneWinAppUtil.exe -c ".\input" -s "ChromeSetup.exe" -o ".\output" -q
+
+      - name: Upload .intunewin package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-intunewin
+          path: output/*.intunewin
