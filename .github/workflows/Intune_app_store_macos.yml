@@ -94,18 +94,19 @@ jobs:
           # to extract Apple packages for versioning info.
           pkgutil --expand input/MicrosoftEdge.pkg input/extracted_edge_pkg
 
+          # Debugging: List contents of the extracted directory to understand its structure.
+          echo "Contents of input/extracted_edge_pkg (for debugging Info.plist path):"
+          ls -R input/extracted_edge_pkg
+
           # Find the Info.plist within the extracted package.
-          # A more robust find: look for any Info.plist within an .app bundle.
-          info_plist_path=$(find input/extracted_edge_pkg -type f -name "Info.plist" | grep ".app/Contents/Info.plist" | head -n 1)
+          # This command looks for any Info.plist file that is part of an application bundle's Contents directory.
+          info_plist_path=$(find input/extracted_edge_pkg -type f -path "*/Contents/Info.plist" | head -n 1)
 
           # Debugging: Print the found path
           echo "Found Info.plist path: $info_plist_path"
 
           if [ -z "$info_plist_path" ]; then
             echo "Error: Could not find Info.plist within the extracted Edge package."
-            # Debugging: List contents of the extracted directory if Info.plist not found
-            echo "Contents of input/extracted_edge_pkg (for debugging):"
-            ls -R input/extracted_edge_pkg
             exit 1
           fi
 
@@ -180,7 +181,6 @@ jobs:
           fi
           echo "GIT_VERSION=$version" >> $GITHUB_ENV
           # Rename the PKG to include the extracted version.
-          # Corrected: Use $version directly as it's set in the same shell context.
           mv input/GitInstaller.pkg "output/Git-for-MacOS-${version}.pkg"
 
       - name: Upload Git artifact
