@@ -76,7 +76,7 @@ jobs:
 
       - name: Download Microsoft Edge Installer
         run: |
-          Invoke-WebRequest -Uri "https://msedgesetup.azureedge.net/stable/MicrosoftEdgeEnterpriseX64.msi" -OutFile "input\EdgeSetup.msi"
+          Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/?LinkID=2093437" -OutFile "input\EdgeSetup.msi"
 
       - name: Print Microsoft Edge installer version
         run: |
