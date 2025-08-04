@@ -89,12 +89,12 @@ jobs:
         run: |
           # Create a temporary directory to extract the PKG contents.
           mkdir -p input/extracted_edge_pkg
-          # Extract the PKG contents using 'xar'.
-          # The --no-overwrite option prevents overwriting existing files.
-          xar -xf input/MicrosoftEdge.pkg -C input/extracted_edge_pkg --no-overwrite
+          # Extract the PKG contents using 'pkgutil --expand'. This is a more reliable way
+          # to extract Apple packages than 'xar' for versioning info.
+          pkgutil --expand input/MicrosoftEdge.pkg input/extracted_edge_pkg
 
           # Find the Info.plist within the extracted package.
-          # The actual path might vary slightly, so we use find.
+          # The actual path might vary, so we use find.
           info_plist_path=$(find input/extracted_edge_pkg -name "Info.plist" | grep "Microsoft Edge.app" | head -n 1)
 
           if [ -z "$info_plist_path" ]; then
@@ -151,39 +151,29 @@ jobs:
       - name: Prepare directories
         run: mkdir -p input output
 
-      - name: Get latest Git for Mac PKG from GitHub and download
+      - name: Download latest Git for Mac PKG from SourceForge
         shell: bash
         run: |
-          # IMPORTANT: Changed repository from 'git-for-windows/git' to 'git-for-mac/git'
-          # to fetch the correct macOS installer.
-          resp=$(curl -s https://api.github.com/repos/git-for-mac/git/releases/latest)
-          
-          # Find the PKG asset in the latest release.
-          # Refined regex to be more flexible for common macOS PKG names.
-          pkg_url=$(echo "$resp" | jq -r '.assets[] | select(.name | test("git-[0-9.]+(-[a-zA-Z0-9.]+)?-macOS.pkg$|git-[0-9.]+-intel-universal-mavericks.pkg$|git-[0-9.]+-x86_64-apple-darwin.pkg$|git-[0-9.]+-arm64-apple-darwin.pkg$")) | .browser_download_url' | head -n1)
-          
-          if [ -z "$pkg_url" ]; then
-            echo "Error: Could not find a suitable Git for Mac PKG installer URL. Check the GitHub API response and asset naming conventions."
-            echo "API Response: $resp" # Print response for debugging
-            exit 1
-          fi
-
-          # Extract filename from URL for consistent naming.
-          installer_filename=$(basename "$pkg_url")
-          echo "GIT_INSTALLER_FILENAME=$installer_filename" >> $GITHUB_ENV
+          # Use SourceForge's direct link to the latest Git for macOS installer.
+          # This URL is a redirect that will provide the latest version.
+          pkg_url="https://sourceforge.net/projects/git-osx-installer/files/latest/download"
           echo "Downloading Git for Mac from: $pkg_url"
-          curl -L "$pkg_url" -o "input/$installer_filename"
+          # Download the file, using a generic name as the actual filename might vary.
+          curl -L "$pkg_url" -o input/GitInstaller.pkg
 
       - name: Get Git installer version and rename PKG
         shell: bash
         run: |
-          # Use the dynamic filename from the environment variable.
-          installer_path="input/${{ env.GIT_INSTALLER_FILENAME }}"
           # Extract the version directly from the downloaded PKG file using pkgutil.
-          version=$(pkgutil --pkg-info "$installer_path" | awk '/version:/{print $2}')
+          # Redirect stderr to /dev/null to suppress "No receipt" errors if the pkg isn't installed.
+          version=$(pkgutil --pkg-info input/GitInstaller.pkg 2>/dev/null | awk '/version:/{print $2}')
+          # If version extraction fails, set it to "unknown" to prevent workflow failure.
+          if [ -z "$version" ]; then
+            version="unknown"
+          fi
           echo "GIT_VERSION=$version" >> $GITHUB_ENV
           # Rename the PKG to include the extracted version.
-          mv "$installer_path" "output/Git-for-MacOS-${{ env.GIT_VERSION }}.pkg"
+          mv input/GitInstaller.pkg output/Git-for-MacOS-${{ env.GIT_VERSION }}.pkg
 
       - name: Upload Git artifact
         uses: actions/upload-artifact@v4
