@@ -127,3 +127,35 @@ jobs:
         with:
           name: nodejs-intunewin
           path: output/*.intunewin
+          
+  git:
+    runs-on: windows-latest
+    steps:
+      - name: Create directories
+        run: |
+          New-Item -Path input -ItemType Directory
+          New-Item -Path output -ItemType Directory
+
+      - name: Download Git for Windows Installer
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/git-for-windows/git/releases/download/v2.45.1.windows.1/Git-2.45.1-64-bit.exe" -OutFile "input\GitSetup.exe"
+
+      - name: Print Git installer version
+        run: |
+          $version = (Get-Item "input\GitSetup.exe").VersionInfo.ProductVersion
+          Write-Host "Git for Windows installer version: $version"
+
+      - name: Download Microsoft Win32 Content Prep Tool
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+
+      - name: Package Git using IntuneWinAppUtil
+        run: |
+          .\IntuneWinAppUtil.exe -c ".\input" -s "GitSetup.exe" -o ".\output" -q
+
+      - name: Upload Git package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: git-intunewin
+          path: output/*.intunewin
+    
