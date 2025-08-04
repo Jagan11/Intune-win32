@@ -46,19 +46,20 @@ jobs:
       - name: Get Chrome installer version and rename DMG
         shell: bash
         run: |
-          # Mount the DMG to access its contents.
-          # The -readonly flag prevents accidental modifications.
-          # The -mountpoint option specifies where to mount it.
+          # Define a mount point for the DMG.
           mount_point="/Volumes/GoogleChromeInstaller"
-          hdiutil attach input/GoogleChrome.dmg -readonly -mountpoint "$mount_point"
+          # Attach the DMG. The -nobrowse option prevents it from appearing in Finder.
+          # The -quiet option suppresses verbose output.
+          hdiutil attach input/GoogleChrome.dmg -readonly -nobrowse -quiet -mountpoint "$mount_point"
 
           # Extract the version from the Google Chrome.app/Contents/Info.plist inside the mounted DMG.
           # PlistBuddy is used to read specific keys from plist files.
           version=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$mount_point/Google Chrome.app/Contents/Info.plist")
           echo "CHROME_VERSION=$version" >> $GITHUB_ENV
 
-          # Unmount the DMG.
-          hdiutil detach "$mount_point"
+          # Unmount the DMG. Using -force to ensure it detaches even if a process holds a reference
+          # (common in automated environments).
+          hdiutil detach -force "$mount_point" || true # || true prevents job failure if detach fails unexpectedly
 
           # Rename the downloaded DMG to include the extracted version number.
           mv input/GoogleChrome.dmg output/GoogleChrome-macOS-${{ env.CHROME_VERSION }}.dmg
@@ -79,18 +80,35 @@ jobs:
         shell: bash
         run: |
           # This URL is a Microsoft redirect that typically points to the latest stable Edge installer.
-          # Note: This direct URL might require occasional verification if Microsoft changes its distribution.
           url="https://go.microsoft.com/fwlink/?linkid=2069148&platform=Mac&channel=Stable" # More specific stable link
           echo "Downloading Edge from: $url"
           curl -L "$url" -o input/MicrosoftEdge.pkg
-          # No built-in version fetch API from a web endpoint, so we'll extract from the PKG.
 
       - name: Get Edge installer version and rename PKG
         shell: bash
         run: |
-          # Extract the version directly from the downloaded PKG file using pkgutil.
-          version=$(pkgutil --pkg-info input/MicrosoftEdge.pkg | awk '/version:/{print $2}')
+          # Create a temporary directory to extract the PKG contents.
+          mkdir -p input/extracted_edge_pkg
+          # Extract the PKG contents using 'xar'.
+          # The --no-overwrite option prevents overwriting existing files.
+          xar -xf input/MicrosoftEdge.pkg -C input/extracted_edge_pkg --no-overwrite
+
+          # Find the Info.plist within the extracted package.
+          # The actual path might vary slightly, so we use find.
+          info_plist_path=$(find input/extracted_edge_pkg -name "Info.plist" | grep "Microsoft Edge.app" | head -n 1)
+
+          if [ -z "$info_plist_path" ]; then
+            echo "Error: Could not find Info.plist within the extracted Edge package."
+            exit 1
+          fi
+
+          # Extract the version from the Info.plist using PlistBuddy.
+          version=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$info_plist_path")
           echo "EDGE_VERSION=$version" >> $GITHUB_ENV
+
+          # Clean up the extracted package directory.
+          rm -rf input/extracted_edge_pkg
+
           # Rename the PKG to include the extracted version.
           mv input/MicrosoftEdge.pkg output/MicrosoftEdge-macOS-${{ env.EDGE_VERSION }}.pkg
 
@@ -139,11 +157,14 @@ jobs:
           # IMPORTANT: Changed repository from 'git-for-windows/git' to 'git-for-mac/git'
           # to fetch the correct macOS installer.
           resp=$(curl -s https://api.github.com/repos/git-for-mac/git/releases/latest)
+          
           # Find the PKG asset in the latest release.
-          pkg_url=$(echo "$resp" | jq -r '.assets[] | select(.name | test("git-[0-9.]+-intel-universal-mavericks.pkg$|git-[0-9.]+-x86_64-apple-darwin.pkg$|git-[0-9.]+-arm64-apple-darwin.pkg$")) | .browser_download_url' | head -n1)
+          # Refined regex to be more flexible for common macOS PKG names.
+          pkg_url=$(echo "$resp" | jq -r '.assets[] | select(.name | test("git-[0-9.]+(-[a-zA-Z0-9.]+)?-macOS.pkg$|git-[0-9.]+-intel-universal-mavericks.pkg$|git-[0-9.]+-x86_64-apple-darwin.pkg$|git-[0-9.]+-arm64-apple-darwin.pkg$")) | .browser_download_url' | head -n1)
           
           if [ -z "$pkg_url" ]; then
-            echo "Error: Could not find a suitable Git for Mac PKG installer URL."
+            echo "Error: Could not find a suitable Git for Mac PKG installer URL. Check the GitHub API response and asset naming conventions."
+            echo "API Response: $resp" # Print response for debugging
             exit 1
           fi
 
