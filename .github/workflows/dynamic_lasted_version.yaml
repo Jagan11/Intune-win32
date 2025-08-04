@@ -50,13 +50,17 @@ jobs:
           New-Item -Path input -ItemType Directory
           New-Item -Path output -ItemType Directory
 
-      - name: Download Google Chrome Offline Installer (Enterprise)
+      - name: Get latest Google Chrome version & download
         shell: pwsh
         run: |
-          # Chrome offline installer version needs manual update or scraping (no official API)
-          $chromeVersion = "117.0.5938.92"
-          $downloadUrl = "https://dl.google.com/chrome/install/$chromeVersion/chrome_installer.exe"
-          Write-Host "Downloading Chrome installer version: $chromeVersion"
+          $chromeJson = Invoke-RestMethod -Uri "https://omahaproxy.appspot.com/all.json"
+          $stableVersion = $chromeJson | Where-Object { $_.os -eq 'win' } | 
+            Select-Object -ExpandProperty versions | Where-Object { $_.channel -eq 'stable' } | 
+            Select-Object -First 1
+          $latestVersion = $stableVersion.current_version
+          Write-Host "Latest Chrome version: $latestVersion"
+          $downloadUrl = "https://dl.google.com/chrome/install/$latestVersion/chrome_installer.exe"
+          Write-Host "Downloading Chrome from: $downloadUrl"
           Invoke-WebRequest -Uri $downloadUrl -OutFile "input\ChromeSetup.exe"
 
       - name: Print Google Chrome installer version
