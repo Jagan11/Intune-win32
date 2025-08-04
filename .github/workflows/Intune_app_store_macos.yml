@@ -180,7 +180,8 @@ jobs:
           fi
           echo "GIT_VERSION=$version" >> $GITHUB_ENV
           # Rename the PKG to include the extracted version.
-          mv input/GitInstaller.pkg output/Git-for-MacOS-${{ env.GIT_VERSION }}.pkg
+          # Corrected: Use $version directly as it's set in the same shell context.
+          mv input/GitInstaller.pkg "output/Git-for-MacOS-${version}.pkg"
 
       - name: Upload Git artifact
         uses: actions/upload-artifact@v4
