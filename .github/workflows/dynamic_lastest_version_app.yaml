@@ -9,32 +9,19 @@ jobs:
     steps:
       - name: Create directories
         run: |
-          New-Item -Path input -ItemType Directory
-          New-Item -Path output -ItemType Directory
+          New-Item -Path input -ItemType Directory -Force
+          New-Item -Path output -ItemType Directory -Force
 
-
-
-    - name: Get latest VSCode x64 installer URL and download
-      shell: pwsh
-      run: |
-        $json = Invoke-RestMethod -Uri "https://update.code.visualstudio.com/api/releases/stable"
-        # The API returns an array of versions, with the latest typically being the last one.
-        # Ensure we get the full version string.
-        $latestVersion = $json[-1]
-        Write-Host "Latest VSCode version: $latestVersion"
-        $downloadUrl = "https://update.code.visualstudio.com/$latestVersion/win32-x64/stable/VSCodeUserSetup-x64-$latestVersion.exe"
-        Write-Host "Downloading VSCode from: $downloadUrl"
-       Invoke-WebRequest -Uri $downloadUrl -OutFile "VSCodeSetup.exe"
-
-      # - name: Get latest VSCode x64 installer URL and download
-      #   shell: pwsh
-      #   run: |
-      #     $json = Invoke-RestMethod -Uri "https://update.code.visualstudio.com/api/releases/stable"
-      #     $latestVersion = $json[-1]
-      #     Write-Host "Latest VSCode version: $latestVersion"
-      #     $downloadUrl = "https://update.code.visualstudio.com/$latestVersion/win32-x64/stable"
-      #     Write-Host "Downloading VSCode from: $downloadUrl"
-      #     Invoke-WebRequest -Uri $downloadUrl -OutFile "input\VSCodeSetup.exe"
+      - name: Get latest VSCode x64 installer URL and download
+        shell: pwsh
+        run: |
+          $json = Invoke-RestMethod -Uri "https://update.code.visualstudio.com/api/releases/stable"
+          $latestVersion = $json[-1]
+          Write-Host "Latest VSCode version: $latestVersion"
+          # Direct download link without filename because VSCode server handles redirects properly
+          $downloadUrl = "https://update.code.visualstudio.com/$latestVersion/win32-x64/stable"
+          Write-Host "Downloading VSCode from: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\VSCodeSetup.exe"
 
       - name: Print VSCode installer version
         shell: pwsh
@@ -61,8 +48,8 @@ jobs:
     steps:
       - name: Create directories
         run: |
-          New-Item -Path input -ItemType Directory
-          New-Item -Path output -ItemType Directory
+          New-Item -Path input -ItemType Directory -Force
+          New-Item -Path output -ItemType Directory -Force
 
       - name: Get latest Chrome stable version and download offline installer
         shell: pwsh
