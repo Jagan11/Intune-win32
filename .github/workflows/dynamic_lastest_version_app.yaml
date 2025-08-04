@@ -1,47 +1,65 @@
 name: Package Apps as IntuneWin
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Allows manual triggering of the workflow
 
 jobs:
   vscode:
-    runs-on: windows-latest
+    runs-on: windows-latest # Specifies that this job runs on a Windows runner
     steps:
       - name: Create directories
         run: |
+          # Create 'input' to store the downloaded installer and 'output' for the packaged .intunewin file
           New-Item -Path input -ItemType Directory -Force
           New-Item -Path output -ItemType Directory -Force
 
-      - name: Get latest VSCode x64 installer URL and download
-        shell: pwsh
+      - name: Download latest VSCode x64 User Installer
+        shell: pwsh # Use PowerShell Core for this step
         run: |
-          $json = Invoke-RestMethod -Uri "https://update.code.visualstudio.com/api/releases/stable"
-          $latestVersion = $json[-1]
-          Write-Host "Latest VSCode version: $latestVersion"
-          # Direct download link without filename because VSCode server handles redirects properly
-          $downloadUrl = "https://update.code.visualstudio.com/$latestVersion/win32-x64/stable"
+          # Use a stable URL that always points to the latest VSCode x64 User Installer.
+          # This avoids issues with specific version numbers in the URL.
+          $downloadUrl = "https://update.code.visualstudio.com/latest/win32-x64-user/stable"
           Write-Host "Downloading VSCode from: $downloadUrl"
           Invoke-WebRequest -Uri $downloadUrl -OutFile "input\VSCodeSetup.exe"
 
-      - name: Print VSCode installer version
+      - name: Get VSCode installer version and set as environment variable
         shell: pwsh
         run: |
+          # Get the product version directly from the downloaded executable's metadata.
+          # This ensures we have the correct version for the file we actually downloaded.
           $version = (Get-Item "input\VSCodeSetup.exe").VersionInfo.ProductVersion
           Write-Host "VSCode installer version: $version"
+          # Set an environment variable named VSCODE_VERSION. This variable will be available
+          # in subsequent steps within this job using ${{ env.VSCODE_VERSION }}.
+          echo "VSCODE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Download Microsoft Win32 Content Prep Tool
         run: |
+          # Download the IntuneWinAppUtil.exe tool from its GitHub repository.
           Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
 
       - name: Package VSCode using IntuneWinAppUtil
+        shell: pwsh
         run: |
+          # Run the IntuneWinAppUtil.exe tool to create the .intunewin package.
+          # -c: content folder (where the installer is)
+          # -s: setup file (the installer executable)
+          # -o: output folder (where the .intunewin file will be created)
+          # -q: quiet mode (no user prompts)
           .\IntuneWinAppUtil.exe -c ".\input" -s "VSCodeSetup.exe" -o ".\output" -q
 
+          # Rename the generated .intunewin file to include the VSCode version.
+          # The tool by default names it after the setup file (e.g., VSCodeSetup.intunewin).
+          $originalFileName = "output\VSCodeSetup.intunewin"
+          $newFileName = "output\VSCode-win-x64-${{ env.VSCODE_VERSION }}.intunewin"
+          Rename-Item -Path $originalFileName -NewName $newFileName -Force
+          Write-Host "Renamed $originalFileName to $newFileName"
+
       - name: Upload VSCode package as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4 # Action to upload workflow artifacts
         with:
-          name: vscode-intunewin
-          path: output/*.intunewin
+          name: vscode-intunewin # Name of the artifact
+          path: output/*.intunewin # Path to the packaged .intunewin file(s)
 
   chrome:
     runs-on: windows-latest
@@ -51,29 +69,39 @@ jobs:
           New-Item -Path input -ItemType Directory -Force
           New-Item -Path output -ItemType Directory -Force
 
-      - name: Get latest Chrome stable version and download offline installer
+      - name: Download latest Chrome stable x64 Standalone Installer
         shell: pwsh
         run: |
-          $chromeJson = Invoke-RestMethod -Uri "https://chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Windows"
-          $latestVersion = $chromeJson[0].version
-          Write-Host "Latest Chrome stable version: $latestVersion"
-          $downloadUrl = "https://dl.google.com/chrome/install/$latestVersion/chrome_installer.exe"
+          # Use a stable URL that always points to the latest Chrome standalone installer.
+          # This is more reliable than trying to construct a version-specific URL.
+          $downloadUrl = "https://dl.google.com/chrome/install/latest/chrome_installer.exe"
           Write-Host "Downloading Chrome from: $downloadUrl"
           Invoke-WebRequest -Uri $downloadUrl -OutFile "input\ChromeSetup.exe"
 
-      - name: Print Google Chrome installer version
+      - name: Get Google Chrome installer version and set as environment variable
         shell: pwsh
         run: |
+          # Get the product version directly from the downloaded executable's metadata.
           $version = (Get-Item "input\ChromeSetup.exe").VersionInfo.ProductVersion
           Write-Host "Google Chrome installer version: $version"
+          # Set an environment variable named CHROME_VERSION.
+          echo "CHROME_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Download Microsoft Win32 Content Prep Tool
         run: |
           Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
 
       - name: Package Chrome using IntuneWinAppUtil
+        shell: pwsh
         run: |
+          # Run the IntuneWinAppUtil.exe tool to create the .intunewin package for Chrome.
           .\IntuneWinAppUtil.exe -c ".\input" -s "ChromeSetup.exe" -o ".\output" -q
+
+          # Rename the generated .intunewin file to include the Chrome version.
+          $originalFileName = "output\ChromeSetup.intunewin"
+          $newFileName = "output\GoogleChrome-win-x64-${{ env.CHROME_VERSION }}.intunewin"
+          Rename-Item -Path $originalFileName -NewName $newFileName -Force
+          Write-Host "Renamed $originalFileName to $newFileName"
 
       - name: Upload Chrome package as artifact
         uses: actions/upload-artifact@v4
