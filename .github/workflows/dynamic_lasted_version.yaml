@@ -1,0 +1,191 @@
+name: Package Apps as IntuneWin
+
+on:
+  workflow_dispatch:
+
+jobs:
+  vscode:
+    runs-on: windows-latest
+    steps:
+      - name: Create directories
+        run: |
+          New-Item -Path input -ItemType Directory
+          New-Item -Path output -ItemType Directory
+
+      - name: Get latest VSCode ARM64 installer URL and download
+        shell: pwsh
+        run: |
+          $json = Invoke-RestMethod -Uri "https://update.code.visualstudio.com/api/releases/stable"
+          $latestVersion = $json[-1]
+          Write-Host "Latest VSCode version: $latestVersion"
+          $downloadUrl = "https://update.code.visualstudio.com/$latestVersion/arm64/stable"
+          Write-Host "Downloading VSCode from: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\VSCodeSetup.exe"
+
+      - name: Print VSCode installer version
+        shell: pwsh
+        run: |
+          $version = (Get-Item "input\VSCodeSetup.exe").VersionInfo.ProductVersion
+          Write-Host "VSCode installer version: $version"
+
+      - name: Download Microsoft Win32 Content Prep Tool
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+
+      - name: Package VSCode using IntuneWinAppUtil
+        run: |
+          .\IntuneWinAppUtil.exe -c ".\input" -s "VSCodeSetup.exe" -o ".\output" -q
+
+      - name: Upload VSCode package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-intunewin
+          path: output/*.intunewin
+
+  chrome:
+    runs-on: windows-latest
+    steps:
+      - name: Create directories
+        run: |
+          New-Item -Path input -ItemType Directory
+          New-Item -Path output -ItemType Directory
+
+      - name: Download Google Chrome Offline Installer (Enterprise)
+        shell: pwsh
+        run: |
+          # Chrome offline installer version needs manual update or scraping (no official API)
+          $chromeVersion = "117.0.5938.92"
+          $downloadUrl = "https://dl.google.com/chrome/install/$chromeVersion/chrome_installer.exe"
+          Write-Host "Downloading Chrome installer version: $chromeVersion"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\ChromeSetup.exe"
+
+      - name: Print Google Chrome installer version
+        shell: pwsh
+        run: |
+          $version = (Get-Item "input\ChromeSetup.exe").VersionInfo.ProductVersion
+          Write-Host "Google Chrome installer version: $version"
+
+      - name: Download Microsoft Win32 Content Prep Tool
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+
+      - name: Package Chrome using IntuneWinAppUtil
+        run: |
+          .\IntuneWinAppUtil.exe -c ".\input" -s "ChromeSetup.exe" -o ".\output" -q
+
+      - name: Upload Chrome package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-intunewin
+          path: output/*.intunewin
+
+  edge:
+    runs-on: windows-latest
+    steps:
+      - name: Create directories
+        run: |
+          New-Item -Path input -ItemType Directory
+          New-Item -Path output -ItemType Directory
+
+      - name: Download Microsoft Edge Installer
+        shell: pwsh
+        run: |
+          $downloadUrl = "https://go.microsoft.com/fwlink/?LinkID=2093437"
+          Write-Host "Downloading Microsoft Edge installer"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\EdgeSetup.msi"
+
+      - name: Print Microsoft Edge installer version
+        shell: pwsh
+        run: |
+          $version = (Get-Item "input\EdgeSetup.msi").VersionInfo.ProductVersion
+          Write-Host "Microsoft Edge installer version: $version"
+
+      - name: Download Microsoft Win32 Content Prep Tool
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+
+      - name: Package Edge using IntuneWinAppUtil
+        run: |
+          .\IntuneWinAppUtil.exe -c ".\input" -s "EdgeSetup.msi" -o ".\output" -q
+
+      - name: Upload Edge package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-intunewin
+          path: output/*.intunewin
+
+  nodejs:
+    runs-on: windows-latest
+    steps:
+      - name: Create directories
+        run: |
+          New-Item -Path input -ItemType Directory
+          New-Item -Path output -ItemType Directory
+
+      - name: Get latest Node.js LTS version and download URL
+        shell: pwsh
+        run: |
+          $nodeIndex = Invoke-RestMethod -Uri "https://nodejs.org/dist/index.json"
+          $ltsRelease = $nodeIndex | Where-Object { $_.lts -ne $null } | Select-Object -First 1
+          $version = $ltsRelease.version.TrimStart('v')
+          $downloadUrl = "https://nodejs.org/dist/v$version/node-v$version-x64.msi"
+          Write-Host "Downloading Node.js LTS version: $version"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\NodeSetup.msi"
+
+      - name: Print Node.js installer version
+        shell: pwsh
+        run: |
+          $version = (Get-Item "input\NodeSetup.msi").VersionInfo.ProductVersion
+          Write-Host "Node.js installer version: $version"
+
+      - name: Download Microsoft Win32 Content Prep Tool
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+
+      - name: Package Node.js using IntuneWinAppUtil
+        run: |
+          .\IntuneWinAppUtil.exe -c ".\input" -s "NodeSetup.msi" -o ".\output" -q
+
+      - name: Upload Node.js package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nodejs-intunewin
+          path: output/*.intunewin
+
+  git:
+    runs-on: windows-latest
+    steps:
+      - name: Create directories
+        run: |
+          New-Item -Path input -ItemType Directory
+          New-Item -Path output -ItemType Directory
+
+      - name: Get latest Git for Windows installer URL
+        shell: pwsh
+        run: |
+          $apiUrl = "https://api.github.com/repos/git-for-windows/git/releases/latest"
+          $response = Invoke-RestMethod -Uri $apiUrl
+          $installerAsset = $response.assets | Where-Object { $_.name -match '64-bit.exe$' } | Select-Object -First 1
+          $latestUrl = $installerAsset.browser_download_url
+          Write-Host "Latest Git installer URL: $latestUrl"
+          Invoke-WebRequest -Uri $latestUrl -OutFile "input\GitSetup.exe"
+
+      - name: Print Git installer version
+        shell: pwsh
+        run: |
+          $version = (Get-Item "input\GitSetup.exe").VersionInfo.ProductVersion
+          Write-Host "Git for Windows installer version: $version"
+
+      - name: Download Microsoft Win32 Content Prep Tool
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+
+      - name: Package Git using IntuneWinAppUtil
+        run: |
+          .\IntuneWinAppUtil.exe -c ".\input" -s "GitSetup.exe" -o ".\output" -q
+
+      - name: Upload Git package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: git-intunewin
+          path: output/*.intunewin
