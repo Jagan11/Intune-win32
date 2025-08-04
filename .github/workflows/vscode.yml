@@ -17,7 +17,7 @@ jobs:
         run: |
           Invoke-WebRequest -Uri "https://vscode.download.prss.microsoft.com/dbazure/download/stable/488a1f239235055e34e673291fb8d8c810886f81/VSCodeSetup-arm64-1.102.3.exe" -OutFile "input\VSCodeSetup.exe"
 
-      - name: Download Microsoft Win32 Content Prep Tool v1.8.6
+      - name: Download Microsoft Win32 Content Prep Tool 
         run: |
           Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
 
