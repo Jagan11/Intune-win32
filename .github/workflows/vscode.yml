@@ -19,7 +19,7 @@ jobs:
 
       - name: Download Microsoft Win32 Content Prep Tool v1.8.6
         run: |
-          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/releases/download/v1.8.6/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/releases/download/v1.8.5/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
 
       - name: Package using IntuneWinAppUtil
         run: |
