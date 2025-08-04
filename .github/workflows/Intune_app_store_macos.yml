@@ -175,6 +175,7 @@ jobs:
           fi
           echo "GIT_VERSION=$version" >> $GITHUB_ENV
           # Rename the PKG to include the extracted version.
+          # Corrected: Use ${{ env.GIT_VERSION }} to properly substitute the environment variable.
           mv input/GitInstaller.pkg output/Git-for-MacOS-${{ env.GIT_VERSION }}.pkg
 
       - name: Upload Git artifact
