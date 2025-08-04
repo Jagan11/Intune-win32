@@ -100,8 +100,6 @@ jobs:
 
           # Find the Info.plist within the extracted package.
           # This command looks for any Info.plist file that is part of an application bundle's Contents directory.
-          # Changed `grep "Microsoft Edge.app"` to a more general `grep "/Contents/Info.plist"`
-          # as the top-level directory name might vary or be a GUID.
           info_plist_path=$(find input/extracted_edge_pkg -type f -name "Info.plist" | grep "/Contents/Info.plist" | head -n 1)
 
           # Debugging: Print the found path
@@ -120,7 +118,6 @@ jobs:
           rm -rf input/extracted_edge_pkg
 
           # Rename the PKG to include the extracted version.
-          # Corrected: Use ${{ env.EDGE_VERSION }} to properly substitute the environment variable.
           mv input/MicrosoftEdge.pkg output/MicrosoftEdge-macOS-${{ env.EDGE_VERSION }}.pkg
 
       - name: Upload Edge artifact
@@ -191,3 +188,43 @@ jobs:
         with:
           name: git-macos
           path: output/*.pkg
+
+  homebrew:
+    runs-on: macos-latest
+    steps:
+      - name: Prepare directories
+        run: mkdir -p input output
+
+      - name: Get latest Homebrew version and download installer script
+        shell: bash
+        run: |
+          # Fetch the latest release tag from Homebrew/brew GitHub repository
+          latest_release_info=$(curl -s https://api.github.com/repos/Homebrew/brew/releases/latest)
+          # Extract the tag_name and remove 'v' prefix if present to get a clean version string.
+          version=$(echo "$latest_release_info" | jq -r '.tag_name' | sed 's/^v//') 
+          
+          if [ -z "$version" ]; then
+            echo "Warning: Could not determine Homebrew version from GitHub API. Using 'latest'."
+            version="latest" # Fallback to 'latest' if version cannot be determined
+          fi
+          echo "HOMEBREW_VERSION=$version" >> $GITHUB_ENV
+
+          # Download the Homebrew install script. This is the primary way to install Homebrew.
+          install_script_url="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
+          echo "Downloading Homebrew install script from: $install_script_url"
+          curl -L "$install_script_url" -o input/install.sh
+
+      - name: Package Homebrew installer script (zip)
+        run: |
+          # Change to the input directory to zip the script.
+          cd input
+          # Create a zip file in the output directory, including the Homebrew version in the name.
+          zip ../output/Homebrew-macOS-${{ env.HOMEBREW_VERSION }}.zip install.sh
+          # Go back to the root directory of the workspace.
+          cd .. 
+
+      - name: Upload Homebrew artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: homebrew-macos
+          path: output/*.zip
