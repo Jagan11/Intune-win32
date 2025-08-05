@@ -1,0 +1,234 @@
+name: Package Apps as IntuneWin
+
+on:
+  workflow_dispatch: # Allows manual triggering of the workflow
+
+jobs:
+  vscode:
+    runs-on: windows-latest # Specifies that this job runs on a Windows runner
+    steps:
+      - name: Create directories
+        run: |
+          New-Item -Path input -ItemType Directory -Force
+          New-Item -Path output -ItemType Directory -Force
+
+      - name: Download latest VSCode x64 User Installer
+        shell: pwsh
+        run: |
+          # This URL specifically targets the 'stable' channel for the latest x64 user installer.
+          $downloadUrl = "https://update.code.visualstudio.com/latest/win32-x64-user/stable"
+          Write-Host "Downloading VSCode from: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\VSCodeSetup.exe"
+
+      - name: Get VSCode installer version and set as environment variable
+        shell: pwsh
+        run: |
+          $version = (Get-Item "input\VSCodeSetup.exe").VersionInfo.ProductVersion
+          Write-Host "VSCode installer version: $version"
+          echo "VSCODE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Download Microsoft Win32 Content Prep Tool
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+
+      - name: Package VSCode using IntuneWinAppUtil
+        shell: pwsh
+        run: |
+          .\IntuneWinAppUtil.exe -c ".\input" -s "VSCodeSetup.exe" -o ".\output" -q
+          $originalFileName = "output\VSCodeSetup.intunewin"
+          $newName = "VSCode-win-x64-$env:VSCODE_VERSION.intunewin"
+          Rename-Item -Path $originalFileName -NewName $newName -Force
+          Write-Host "Renamed $originalFileName to $newName"
+
+      - name: Upload VSCode package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-intunewin
+          path: output/*.intunewin
+
+  chrome:
+    runs-on: windows-latest
+    steps:
+      - name: Create directories
+        run: |
+          New-Item -Path input -ItemType Directory -Force
+          New-Item -Path output -ItemType Directory -Force
+
+      - name: Download latest Chrome stable x64 Standalone Installer
+        shell: pwsh
+        run: |
+          # This URL typically provides the latest stable version of Google Chrome.
+          $downloadUrl = "https://dl.google.com/chrome/install/latest/chrome_installer.exe"
+          Write-Host "Downloading Chrome from: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\ChromeSetup.exe"
+
+      - name: Get Google Chrome installer version and set as environment variable
+        shell: pwsh
+        run: |
+          $version = (Get-Item "input\ChromeSetup.exe").VersionInfo.ProductVersion
+          Write-Host "Google Chrome installer version: $version"
+          echo "CHROME_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Download Microsoft Win32 Content Prep Tool
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+
+      - name: Package Chrome using IntuneWinAppUtil
+        shell: pwsh
+        run: |
+          .\IntuneWinAppUtil.exe -c ".\input" -s "ChromeSetup.exe" -o ".\output" -q
+          $originalFileName = "output\ChromeSetup.intunewin"
+          $newName = "GoogleChrome-win-x64-$env:CHROME_VERSION.intunewin"
+          Rename-Item -Path $originalFileName -NewName $newName -Force
+          Write-Host "Renamed $originalFileName to $newName"
+
+      - name: Upload Chrome package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-intunewin
+          path: output/*.intunewin
+
+  edge:
+    runs-on: windows-latest
+    steps:
+      - name: Create directories
+        run: |
+          New-Item -Path input -ItemType Directory -Force
+          New-Item -Path output -ItemType Directory -Force
+
+      - name: Download Microsoft Edge Installer
+        shell: pwsh
+        run: |
+          # This Microsoft redirect URL is designed to provide the latest stable Edge installer.
+          $downloadUrl = "https://go.microsoft.com/fwlink/?LinkID=2093437"
+          Write-Host "Downloading Microsoft Edge installer from: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\EdgeSetup.msi"
+
+      - name: Get Microsoft Edge installer version and set as environment variable
+        shell: pwsh
+        run: |
+          $version = (Get-Item "input\EdgeSetup.msi").VersionInfo.ProductVersion
+          Write-Host "Microsoft Edge installer version: $version"
+          echo "EDGE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Download Microsoft Win32 Content Prep Tool
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+
+      - name: Package Edge using IntuneWinAppUtil
+        shell: pwsh
+        run: |
+          .\IntuneWinAppUtil.exe -c ".\input" -s "EdgeSetup.msi" -o ".\output" -q
+          $originalFileName = "output\EdgeSetup.intunewin"
+          $newName = "MicrosoftEdge-win-x64-$env:EDGE_VERSION.intunewin"
+          Rename-Item -Path $originalFileName -NewName $newName -Force
+          Write-Host "Renamed $originalFileName to $newName"
+
+      - name: Upload Edge package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-intunewin
+          path: output/*.intunewin
+
+  nodejs:
+    runs-on: windows-latest
+    steps:
+      - name: Create directories
+        run: |
+          New-Item -Path input -ItemType Directory -Force
+          New-Item -Path output -ItemType Directory -Force
+
+      - name: Get latest Node.js LTS version and download URL
+        shell: pwsh
+        run: |
+          # This fetches the JSON index of all Node.js releases and specifically selects the latest LTS (Long Term Support) version, which is considered stable.
+          $nodeIndex = Invoke-RestMethod -Uri "https://nodejs.org/dist/index.json"
+          $ltsRelease = $nodeIndex | Where-Object { $_.lts -ne $null } | Select-Object -First 1
+          $version = $ltsRelease.version.TrimStart('v')
+          $downloadUrl = "https://nodejs.org/dist/v$version/node-v$version-x64.msi"
+          Write-Host "Downloading Node.js LTS version: $version from: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\NodeSetup.msi"
+
+      - name: Get Node.js installer version and set as environment variable
+        shell: pwsh
+        run: |
+          $version = (Get-Item "input\NodeSetup.msi").VersionInfo.ProductVersion
+          Write-Host "Node.js installer version: $version"
+          echo "NODEJS_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Download Microsoft Win32 Content Prep Tool
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+
+      - name: Package Node.js using IntuneWinAppUtil
+        shell: pwsh
+        run: |
+          .\IntuneWinAppUtil.exe -c ".\input" -s "NodeSetup.msi" -o ".\output" -q
+          $originalFileName = "output\NodeSetup.intunewin"
+          $newName = "Node.js-win-x64-$env:NODEJS_VERSION.intunewin"
+          Rename-Item -Path $originalFileName -NewName $newName -Force
+          Write-Host "Renamed $originalFileName to $newName"
+
+      - name: Upload Node.js package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nodejs-intunewin
+          path: output/*.intunewin
+
+  git:
+    runs-on: windows-latest
+    steps:
+      - name: Create directories
+        run: |
+          New-Item -Path input -ItemType Directory -Force
+          New-Item -Path output -ItemType Directory -Force
+
+      - name: Get latest Git for Windows installer URL and download
+        shell: pwsh
+        run: |
+          # This fetches the latest non-prerelease (stable) version from the Git for Windows GitHub releases.
+          $apiUrl = "https://api.github.com/repos/git-for-windows/git/releases/latest"
+          $response = Invoke-RestMethod -Uri $apiUrl
+          $asset = $response.assets | Where-Object { $_.name -like "*64-bit.exe" -and $_.name -notlike "*portable*" } | Select-Object -First 1
+          if ($null -eq $asset) {
+              Write-Error "Could not find a suitable 64-bit Git for Windows installer asset."
+              exit 1
+          }
+          $downloadUrl = $asset.browser_download_url
+          $installerFileName = $asset.name
+          Write-Host "Downloading Git for Windows from: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\$installerFileName"
+          echo "GIT_INSTALLER_FILENAME=$installerFileName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Get Git for Windows installer version and set as environment variable
+        shell: pwsh
+        run: |
+          $installerPath = "input\$env:GIT_INSTALLER_FILENAME"
+          $version = (Get-Item $installerPath).VersionInfo.ProductVersion
+          Write-Host "Git for Windows installer version: $version"
+          echo "GIT_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Download Microsoft Win32 Content Prep Tool
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+
+      - name: Package Git for Windows using IntuneWinAppUtil
+        shell: pwsh
+        run: |
+          $installerFileName = "$env:GIT_INSTALLER_FILENAME"
+          .\IntuneWinAppUtil.exe -c ".\input" -s "$installerFileName" -o ".\output" -q
+          $originalFileName = "output\$($installerFileName -replace '\.exe$', '.intunewin')"
+          $newName = "GitForWindows-win-x64-$env:GIT_VERSION.intunewin"
+          Rename-Item -Path $originalFileName -NewName $newName -Force
+          Write-Host "Renamed $originalFileName to $newName"
+
+      - name: Upload Git for Windows package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: git-intunewin
+          path: output/*.intunewin
