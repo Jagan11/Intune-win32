@@ -22,8 +22,19 @@ jobs:
           # Attach DMG with quiet and nobrowse options for automation
           hdiutil attach input/VSCode.dmg -readonly -nobrowse -quiet -mountpoint "$mount_point"
 
+          # Find the Info.plist within the mounted DMG.
+          # This command looks for any Info.plist file that is part of an application bundle's Contents directory.
+          plist=$(find "$mount_point" -type f -name "Info.plist" | grep "/Contents/Info.plist" | head -n 1)
+
+          if [ -z "$plist" ]; then
+            echo "Error: Could not find Info.plist within the mounted VSCode DMG."
+            ls -R "$mount_point" # Debugging: List contents if Info.plist not found
+            hdiutil detach -force -quiet "$mount_point" || true # Attempt to detach before exiting
+            exit 1
+          fi
+
           # Extract version from Info.plist
-          version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$mount_point/Visual Studio Code.app/Contents/Info.plist")
+          version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist")
           echo "VSCODE_VERSION=$version" >> $GITHUB_ENV
           echo "VSCode version: $version"
 
@@ -229,5 +240,5 @@ jobs:
       - name: Upload Homebrew artifact
         uses: actions/upload-artifact@v4
         with:
-          name: homebrew-macos
-          path: output/*.zip
+            name: homebrew-macos
+            path: output/*.zip
