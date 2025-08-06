@@ -1,230 +1,104 @@
-name: Package Apps for macOS
+name: Package macOS Apps as DMG/PKG
 
 on:
-  workflow_dispatch: # Allows manual triggering of the workflow
+  workflow_dispatch:
 
 jobs:
   vscode:
-    runs-on: macos-latest # Specifies that this job runs on the latest macOS runner
+    runs-on: macos-latest
     steps:
-      - name: Prepare directories
-        run: mkdir -p input output # Create 'input' for downloads and 'output' for packaged files
-
-      - name: Download latest VSCode ZIP
-        shell: bash
+      - name: Create directories
         run: |
-          # Fetch the latest stable VSCode version string from the update API.
-          # jq is used to parse the JSON response and extract the last element (latest version).
-          latest=$(curl -s https://update.code.visualstudio.com/api/releases/stable | jq -r '.[-1]')
-          # Set the VSCODE_VERSION as an environment variable for subsequent steps.
-          echo "VSCODE_VERSION=$latest" >> $GITHUB_ENV
-          # Download the VSCode macOS zip installer.
-          curl -L "https://update.code.visualstudio.com/${latest}/darwin/stable" -o input/VSCode.zip
-
-      - name: Rename VSCode ZIP
-        # Rename the downloaded zip to include the version number.
-        run: mv input/VSCode.zip output/VSCode-macOS-${{ env.VSCODE_VERSION }}.zip
-
-      - name: Upload VSCode artifact
-        uses: actions/upload-artifact@v4 # Action to upload workflow artifacts
-        with:
-          name: vscode-macos # Name of the artifact
-          path: output/*.zip # Path to the packaged zip file(s)
+          mkdir -p input output
+      - name: Download latest VSCode stable macOS User Installer (DMG)
+        run: |
+          curl -L "https://update.code.visualstudio.com/latest/darwin/stable" -o input/VSCode.dmg
+      - name: Get VSCode version
+        run: |
+          # Mount DMG temporarily
+          hdiutil attach input/VSCode.dmg -mountpoint /Volumes/VSCode
+          version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "/Volumes/VSCode/Visual Studio Code.app/Contents/Info.plist")
+          echo "VSCODE_VERSION=$version" >> $GITHUB_ENV
+          echo "VSCode version: $version"
+          hdiutil detach /Volumes/VSCode
 
   chrome:
     runs-on: macos-latest
     steps:
-      - name: Prepare directories
+      - name: Create directories
         run: mkdir -p input output
-
-      - name: Download latest Chrome DMG
-        shell: bash
+      - name: Download Google Chrome stable macOS DMG
         run: |
-          # Download the Google Chrome offline DMG installer for Mac. This URL is a stable redirect.
-          curl -L "https://dl.google.com/chrome/mac/stable/GGRO/googlechrome.dmg" -o input/GoogleChrome.dmg
-
-      - name: Get Chrome installer version and rename DMG
-        shell: bash
+          curl -L "https://dl.google.com/chrome/mac/stable/GGRO/googlechrome.dmg" -o input/Chrome.dmg
+      - name: Get Chrome version
         run: |
-          # Define a mount point for the DMG.
-          mount_point="/Volumes/GoogleChromeInstaller"
-          # Attach the DMG. The -nobrowse option prevents it from appearing in Finder.
-          # The -quiet option suppresses verbose verbose output.
-          hdiutil attach input/GoogleChrome.dmg -readonly -nobrowse -quiet -mountpoint "$mount_point"
-
-          # Extract the version from the Google Chrome.app/Contents/Info.plist inside the mounted DMG.
-          # PlistBuddy is used to read specific keys from plist files.
-          version=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$mount_point/Google Chrome.app/Contents/Info.plist")
+          # Mount DMG
+          hdiutil attach input/Chrome.dmg -mountpoint /Volumes/Chrome
+          version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "/Volumes/Chrome/Google Chrome.app/Contents/Info.plist")
           echo "CHROME_VERSION=$version" >> $GITHUB_ENV
-
-          # Unmount the DMG. Using -force to ensure it detaches even if a process holds a reference
-          # (common in automated environments).
-          hdiutil detach -force "$mount_point" || true # || true prevents job failure if detach fails unexpectedly
-
-          # Rename the downloaded DMG to include the extracted version number.
-          mv input/GoogleChrome.dmg output/GoogleChrome-macOS-${{ env.CHROME_VERSION }}.dmg
-
-      - name: Upload Chrome artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: chrome-macos
-          path: output/*.dmg
+          echo "Chrome version: $version"
+          hdiutil detach /Volumes/Chrome
 
   edge:
     runs-on: macos-latest
     steps:
-      - name: Prepare directories
+      - name: Create directories
         run: mkdir -p input output
-
-      - name: Download Microsoft Edge PKG
-        shell: bash
+      - name: Download Microsoft Edge stable macOS PKG
         run: |
-          # This URL is a Microsoft redirect that typically points to the latest stable Edge installer.
-          url="https://go.microsoft.com/fwlink/?linkid=2069148&platform=Mac&channel=Stable" # More specific stable link
-          echo "Downloading Edge from: $url"
-          curl -L "$url" -o input/MicrosoftEdge.pkg
-
-      - name: Get Edge installer version and rename PKG
-        shell: bash
+          curl -L "https://go.microsoft.com/fwlink/?linkid=2069148&platform=Mac&channel=Stable" -o input/MicrosoftEdge.pkg
+      - name: Get Edge version
         run: |
-          # Ensure the extraction directory is clean before expanding the PKG.
-          rm -rf input/extracted_edge_pkg
-          
-          # Extract the PKG contents using 'pkgutil --expand'. This is a more reliable way
-          # to extract Apple packages for versioning info.
-          pkgutil --expand input/MicrosoftEdge.pkg input/extracted_edge_pkg
-
-          # Debugging: List contents of the extracted directory to understand its structure.
-          echo "Contents of input/extracted_edge_pkg (for debugging Info.plist path):"
-          ls -R input/extracted_edge_pkg
-
-          # Find the Info.plist within the extracted package.
-          # This command looks for any Info.plist file that is part of an application bundle's Contents directory.
-          info_plist_path=$(find input/extracted_edge_pkg -type f -name "Info.plist" | grep "/Contents/Info.plist" | head -n 1)
-
-          # Debugging: Print the found path
-          echo "Found Info.plist path: $info_plist_path"
-
-          if [ -z "$info_plist_path" ]; then
-            echo "Error: Could not find Info.plist within the extracted Edge package."
-            exit 1
+          version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "/Applications/Microsoft Edge.app/Contents/Info.plist" 2>/dev/null || echo "")
+          # If Edge.app is not installed yet, extract from pkg
+          if [ -z "$version" ]; then
+            pkgutil --expand input/MicrosoftEdge.pkg input/expanded_edge
+            plist=$(find input/expanded_edge -name "Info.plist" | head -n1)
+            version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist")
+            rm -rf input/expanded_edge
           fi
-
-          # Extract the version from the Info.plist using PlistBuddy.
-          version=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$info_plist_path")
           echo "EDGE_VERSION=$version" >> $GITHUB_ENV
-
-          # Clean up the extracted package directory.
-          rm -rf input/extracted_edge_pkg
-
-          # Rename the PKG to include the extracted version.
-          mv input/MicrosoftEdge.pkg output/MicrosoftEdge-macOS-${{ env.EDGE_VERSION }}.pkg
-
-      - name: Upload Edge artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: edge-macos
-          path: output/*.pkg
+          echo "Edge version: $version"
 
   nodejs:
     runs-on: macos-latest
     steps:
-      - name: Prepare directories
+      - name: Create directories
         run: mkdir -p input output
-
-      - name: Download latest Node.js LTS PKG
-        shell: bash
+      - name: Get latest Node.js LTS version and download URL
         run: |
-          # Fetch the JSON index of all Node.js releases.
-          data=$(curl -s https://nodejs.org/dist/index.json)
-          # Filter for the latest LTS (Long Term Support) release and extract its version, removing the 'v' prefix.
-          version=$(echo "$data" | jq -r '.[] | select(.lts!=null) | .version' | head -n1 | sed 's/^v//')
+          version=$(curl -s https://nodejs.org/dist/index.json | jq -r '.[] | select(.lts != null) | .version' | head -n1 | sed 's/^v//')
+          url="https://nodejs.org/dist/v${version}/node-v${version}.pkg"
           echo "NODEJS_VERSION=$version" >> $GITHUB_ENV
-          # Construct the download URL for the macOS PKG installer.
-          curl -L "https://nodejs.org/dist/v$version/node-v$version.pkg" -o input/NodeJS.pkg
-
-      - name: Rename Node.js installer
-        # Rename the downloaded PKG to include the version number.
-        run: mv input/NodeJS.pkg output/NodeJS-macOS-${{ env.NODEJS_VERSION }}.pkg
-
-      - name: Upload Node.js artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: nodejs-macos
-          path: output/*.pkg
+          echo "Downloading Node.js $version from $url"
+          curl -L "$url" -o input/Node.pkg
+      - name: Get Node.js version from pkg
+        run: |
+          # Extract Info.plist from pkg
+          pkgutil --expand input/Node.pkg input/expanded_node
+          plist=$(find input/expanded_node -name "Info.plist" | head -n1)
+          version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist")
+          echo "NODEJS_VERSION=$version" >> $GITHUB_ENV
+          echo "Node.js version: $version"
+          rm -rf input/expanded_node
 
   git:
     runs-on: macos-latest
     steps:
-      - name: Prepare directories
+      - name: Create directories
         run: mkdir -p input output
-
-      - name: Download latest Git for Mac PKG from SourceForge
-        shell: bash
+      - name: Download latest stable Git macOS installer
         run: |
-          # Use SourceForge's direct link to the latest Git for macOS installer.
-          # This URL is a redirect that will provide the latest version.
-          pkg_url="https://sourceforge.net/projects/git-osx-installer/files/latest/download"
-          echo "Downloading Git for Mac from: $pkg_url"
-          # Download the file, using a generic name as the actual filename might vary.
-          curl -L "$pkg_url" -o input/GitInstaller.pkg
-
-      - name: Get Git installer version and rename PKG
-        shell: bash
+          # This URL redirects to the latest stable Git installer pkg
+          curl -L "https://sourceforge.net/projects/git-osx-installer/files/latest/download" -o input/Git.pkg
+      - name: Extract Git version from pkg
         run: |
-          # Extract the version directly from the downloaded PKG file using pkgutil.
-          # Redirect stderr to /dev/null to suppress "No receipt" errors if the pkg isn't installed.
-          version=$(pkgutil --pkg-info input/GitInstaller.pkg 2>/dev/null | awk '/version:/{print $2}')
-          # If version extraction fails, set it to "unknown" to prevent workflow failure.
-          if [ -z "$version" ]; then
-            version="unknown"
-          fi
+          pkgutil --expand input/Git.pkg input/expanded_git
+          plist=$(find input/expanded_git -name "Info.plist" | head -n1)
+          version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist")
           echo "GIT_VERSION=$version" >> $GITHUB_ENV
-          # Rename the PKG to include the extracted version.
-          mv input/GitInstaller.pkg "output/Git-for-MacOS-${version}.pkg"
+          echo "Git version: $version"
+          rm -rf input/expanded_git
 
-      - name: Upload Git artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: git-macos
-          path: output/*.pkg
+  # Optional: Upload artifacts step here if needed
 
-  homebrew:
-    runs-on: macos-latest
-    steps:
-      - name: Prepare directories
-        run: mkdir -p input output
-
-      - name: Get latest Homebrew version and download installer script
-        shell: bash
-        run: |
-          # Fetch the latest release tag from Homebrew/brew GitHub repository
-          latest_release_info=$(curl -s https://api.github.com/repos/Homebrew/brew/releases/latest)
-          # Extract the tag_name and remove 'v' prefix if present to get a clean version string.
-          version=$(echo "$latest_release_info" | jq -r '.tag_name' | sed 's/^v//') 
-          
-          if [ -z "$version" ]; then
-            echo "Warning: Could not determine Homebrew version from GitHub API. Using 'latest'."
-            version="latest" # Fallback to 'latest' if version cannot be determined
-          fi
-          echo "HOMEBREW_VERSION=$version" >> $GITHUB_ENV
-
-          # Download the Homebrew install script. This is the primary way to install Homebrew.
-          install_script_url="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
-          echo "Downloading Homebrew install script from: $install_script_url"
-          curl -L "$install_script_url" -o input/install.sh
-
-      - name: Package Homebrew installer script (zip)
-        run: |
-          # Change to the input directory to zip the script.
-          cd input
-          # Create a zip file in the output directory, including the Homebrew version in the name.
-          zip ../output/Homebrew-macOS-${{ env.HOMEBREW_VERSION }}.zip install.sh
-          # Go back to the root directory of the workspace.
-          cd .. 
-
-      - name: Upload Homebrew artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: homebrew-macos
-          path: output/*.zip
