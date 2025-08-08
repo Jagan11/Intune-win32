@@ -1,4 +1,4 @@
-name: Package macOS apps for Intune appstore
+name: Package macOS apps for Intune
 
 on:
   workflow_dispatch:
@@ -11,9 +11,11 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Set up directories
+    - name: Set up directories safely
       run: |
-        mkdir -p input output tools
+        [ -d input ] || mkdir input
+        [ -d output ] || mkdir output
+        [ -d tools ] || mkdir tools
 
     - name: Download Visual Studio Code
       run: |
@@ -27,7 +29,7 @@ jobs:
       run: |
         curl -L "https://go.microsoft.com/fwlink/?linkid=2069148" -o "input/Edge.pkg"
 
-    - name: Download GitHub Desktop
+    - name: Download GitHub Desktop and convert to pkg
       run: |
         curl -L "https://central.github.com/deployments/desktop/desktop/latest/darwin" -o "input/GitHubDesktop.zip"
         unzip input/GitHubDesktop.zip -d input/
