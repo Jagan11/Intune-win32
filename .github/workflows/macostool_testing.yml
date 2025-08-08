@@ -58,21 +58,21 @@ jobs:
       # ---------------------------
       # 6. Wrap all .pkg installers into .intunemac format
       # ---------------------------
-      - name: Wrap VSCode
-        run: |
-          ./tools/IntuneAppUtil -c input/VSCode.pkg -o output/
+      # - name: Wrap VSCode
+      #   run: |
+      #     ./tools/IntuneAppUtil -c input/VSCode.pkg -o output/
 
-      - name: Wrap GitHub Desktop
-        run: |
-          ./tools/IntuneAppUtil -c input/GitHubDesktop.pkg -o output/
+      # - name: Wrap GitHub Desktop
+      #   run: |
+      #     ./tools/IntuneAppUtil -c input/GitHubDesktop.pkg -o output/
 
-      - name: Wrap Chrome
-        run: |
-          ./tools/IntuneAppUtil -c input/Chrome.pkg -o output/
+      # - name: Wrap Chrome
+      #   run: |
+      #     ./tools/IntuneAppUtil -c input/Chrome.pkg -o output/
 
-      - name: Wrap Edge
-        run: |
-          ./tools/IntuneAppUtil -c input/Edge.pkg -o output/
+      # - name: Wrap Edge
+      #   run: |
+      #     ./tools/IntuneAppUtil -c input/Edge.pkg -o output/
 
       # ---------------------------
       # 7. Upload all wrapped apps as artifacts
