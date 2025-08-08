@@ -57,7 +57,7 @@ jobs:
 
       # ---------------------------
       # 6. Wrap all .pkg installers into .intunemac format
-      ---------------------------
+      # ---------------------------
       - name: Wrap VSCode
         run: |
           ./tools/wrapper/intune-app-wrapping-tool-macos -i input/VSCode.pkg -o output/VSCode.intunemac
@@ -87,16 +87,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: githubdesktop-intunemac
-          path: output/GitHubDesktop.intunemac
-
-      - name: Upload Chrome.intunemac
-        uses: actions/upload-artifact@v4
-        with:
-          name: chrome-intunemac
-          path: output/Chrome.intunemac
-
-      - name: Upload Edge.intunemac
-        uses: actions/upload-artifact@v4
-        with:
-          name: edge-intunemac
-          path: output/Edge.intunemac
+          path: output/
