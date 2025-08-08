@@ -20,6 +20,7 @@ jobs:
     - name: Download VSCode pkg
       run: |
         curl -L "https://code.visualstudio.com/sha/download?build=stable&os=darwin-universal" -o "input/VSCode.pkg"
+
     - name: Download VSCode dmg
       run: |
         curl -L "https://update.code.visualstudio.com/latest/darwin/stable" -o "dmg_files/VSCode.zip"
@@ -39,6 +40,7 @@ jobs:
     # ---------------------------
     - name: Download Chrome dmg
       run: curl -L "https://dl.google.com/chrome/mac/stable/GGRO/googlechrome.dmg" -o "dmg_files/Chrome.dmg"
+
     - name: Mount Chrome dmg and create pkg
       run: |
         hdiutil attach dmg_files/Chrome.dmg -nobrowse -quiet
@@ -65,10 +67,13 @@ jobs:
     # ---------------------------
     - name: Wrap VSCode pkg
       run: ./tools/IntuneAppUtil -c input/VSCode.pkg -o output/
+
     - name: Wrap GitHub Desktop pkg
       run: ./tools/IntuneAppUtil -c input/GitHubDesktop.pkg -o output/
+
     - name: Wrap Chrome pkg
       run: ./tools/IntuneAppUtil -c input/Chrome.pkg -o output/
+
     - name: Wrap Edge pkg
       run: ./tools/IntuneAppUtil -c input/Edge.pkg -o output/
 
