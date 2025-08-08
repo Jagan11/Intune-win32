@@ -1,0 +1,41 @@
+name: Download and Upload macOS DMG Files Only
+
+on:
+  workflow_dispatch:
+
+jobs:
+  download-dmgs:
+    runs-on: macos-latest
+    steps:
+      - name: Set up directories
+        run: |
+          for dir in dmg_files; do
+            [ -f "$dir" ] && rm -f "$dir"
+            mkdir -p "$dir"
+          done
+
+      - name: Download VSCode DMG
+        run: |
+          curl -L "https://update.code.visualstudio.com/latest/darwin/stable" -o dmg_files/VSCode.zip
+          unzip -q dmg_files/VSCode.zip -d dmg_files/
+          # Optional: you can keep as .app or create dmg if you want
+
+      - name: Download GitHub Desktop DMG
+        run: |
+          curl -L "https://central.github.com/deployments/desktop/desktop/latest/darwin" -o dmg_files/GitHubDesktop.zip
+          unzip -q dmg_files/GitHubDesktop.zip -d dmg_files/
+
+      - name: Download Chrome DMG
+        run: |
+          curl -L "https://dl.google.com/chrome/mac/stable/GGRO/googlechrome.dmg" -o dmg_files/GoogleChrome.dmg
+
+      - name: Download Microsoft Edge DMG
+        run: |
+          curl -L "https://go.microsoft.com/fwlink/?linkid=2069148" -o dmg_files/MicrosoftEdge.pkg
+          # Note: Edge provides a .pkg instead of .dmg, but you can upload .pkg as well
+
+      - name: Upload all DMG and PKG files
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-installers
+          path: dmg_files/*
