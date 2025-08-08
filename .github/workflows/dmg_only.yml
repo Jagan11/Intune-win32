@@ -33,7 +33,7 @@ jobs:
         run: |
           # Create a temporary DMG, copy the app, then detach
           TEMP_DMG_PATH="output/VSCode-temp.dmg"
-          hdiutil create -size 500m -fs HFS+ -volname "Visual Studio Code" "$TEMP_DMG_PATH"
+          hdiutil create -size 500m -fs HFS+ -volname "Visual Studio Code" -o "$TEMP_DMG_PATH"
           hdiutil attach "$TEMP_DMG_PATH" -nobrowse -quiet
           cp -r "$VSCODE_APP_PATH" "/Volumes/Visual Code/"
           hdiutil detach "/Volumes/Visual Code" -quiet
@@ -45,7 +45,7 @@ jobs:
           name: vscode-dmg
           path: output/*.dmg
 
-  # -----------------------------------------------------------------------------
+---
 
   github-desktop-dmg:
     runs-on: macos-latest
@@ -73,7 +73,7 @@ jobs:
       - name: Create GitHub Desktop DMG from app bundle
         run: |
           TEMP_DMG_PATH="output/GitHubDesktop-temp.dmg"
-          hdiutil create -size 500m -fs HFS+ -volname "GitHub Desktop" "$TEMP_DMG_PATH"
+          hdiutil create -size 500m -fs HFS+ -volname "GitHub Desktop" -o "$TEMP_DMG_PATH"
           hdiutil attach "$TEMP_DMG_PATH" -nobrowse -quiet
           cp -r "$GITHUB_APP_PATH" "/Volumes/GitHub Desktop/"
           hdiutil detach "/Volumes/GitHub Desktop" -quiet
@@ -85,7 +85,7 @@ jobs:
           name: github-desktop-dmg
           path: output/*.dmg
 
-  # -----------------------------------------------------------------------------
+---
 
   chrome-dmg:
     runs-on: macos-latest
@@ -114,7 +114,7 @@ jobs:
           name: chrome-dmg
           path: output/*.dmg
 
-  # -----------------------------------------------------------------------------
+---
 
   edge-dmg:
     runs-on: macos-latest
@@ -125,20 +125,36 @@ jobs:
       - name: Download Microsoft Edge macOS Universal (PKG)
         run: |
           curl -L "https://go.microsoft.com/fwlink/?linkid=2069148" -o "input/MicrosoftEdge.pkg"
-      - name: Install Edge PKG to temp location and extract app
+      - name: Extract Microsoft Edge.app from PKG
         run: |
-          # Install the PKG to a temporary location to extract the .app
-          sudo installer -pkg "input/MicrosoftEdge.pkg" -target /tmp/edge_install
-          # Find the .app bundle within the temporary installation
-          EDGE_APP_PATH=$(find /tmp/edge_install/Applications -maxdepth 1 -name "Microsoft Edge.app" -type d | head -n 1)
-          if [ -z "$EDGE_APP_PATH" ]; then
-            echo "Error: Microsoft Edge.app not found after PKG installation."
-            exit 1
+          # Expand the PKG file to a temporary location
+          pkgutil --expand "input/MicrosoftEdge.pkg" tmp/expanded_pkg
+          
+          # Navigate into the expanded package and extract the Payload
+          # The payload often contains a .tar.gz or a directory with the actual app
+          cd tmp/expanded_pkg
+          
+          # Find the actual .app bundle within the expanded content or Payload.
+          # Some PKGs have a direct 'Payload' file, others might have structure.
+          # We'll adapt to find the .app wherever it extracts.
+          
+          # Check for a 'Payload' file first, then extract it
+          if [ -f "Payload" ]; then
+            tar -xf Payload -C ..
+            # Move the .app from where tar extracts it (usually 'Applications')
+            mv ../Applications/Microsoft\ Edge.app ../../input/
+          else
+            # If no 'Payload' file, try finding the .app directly in expanded_pkg
+            # This handles cases where 'pkgutil --expand' extracts the structure directly
+            mv Applications/Microsoft\ Edge.app ../../input/
           fi
-          # Copy the .app to input directory for DMG creation
-          cp -r "$EDGE_APP_PATH" "input/"
-          # Clean up temporary installation
-          sudo rm -rf /tmp/edge_install
+          
+          # Go back to the original working directory
+          cd ../../
+          
+          # Clean up temporary expansion directory
+          rm -rf tmp/
+          
           echo "EDGE_APP_PATH=input/Microsoft Edge.app" | tee -a $GITHUB_ENV
       - name: Get Edge version
         run: |
@@ -148,7 +164,7 @@ jobs:
       - name: Create Microsoft Edge DMG from app bundle
         run: |
           TEMP_DMG_PATH="output/MicrosoftEdge-temp.dmg"
-          hdiutil create -size 500m -fs HFS+ -volname "Microsoft Edge" "$TEMP_DMG_PATH"
+          hdiutil create -size 500m -fs HFS+ -volname "Microsoft Edge" -o "$TEMP_DMG_PATH"
           hdiutil attach "$TEMP_DMG_PATH" -nobrowse -quiet
           cp -r "input/Microsoft Edge.app" "/Volumes/Microsoft Edge/"
           hdiutil detach "/Volumes/Microsoft Edge" -quiet
