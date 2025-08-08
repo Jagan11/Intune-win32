@@ -52,7 +52,6 @@ jobs:
       # ---------------------------
       - name: Download Intune App Wrapping Tool
         run: |
-          # Use the latest release asset URL for IntuneAppUtil
           curl -L "https://github.com/microsoft/shell-intune-app-utility/releases/latest/download/IntuneAppUtil" -o tools/IntuneAppUtil
           chmod +x tools/IntuneAppUtil
 
