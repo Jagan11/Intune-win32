@@ -1,0 +1,62 @@
+name: Package macOS apps for Intune appstore
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Set up directories
+      run: |
+        mkdir -p input output tools
+
+    - name: Download Visual Studio Code
+      run: |
+        curl -L "https://code.visualstudio.com/sha/download?build=stable&os=darwin-universal" -o "input/VSCode.pkg"
+
+    - name: Download Google Chrome
+      run: |
+        curl -L "https://dl.google.com/chrome/mac/stable/GGRO/googlechrome.pkg" -o "input/Chrome.pkg"
+
+    - name: Download Microsoft Edge
+      run: |
+        curl -L "https://go.microsoft.com/fwlink/?linkid=2069148" -o "input/Edge.pkg"
+
+    - name: Download GitHub Desktop
+      run: |
+        curl -L "https://central.github.com/deployments/desktop/desktop/latest/darwin" -o "input/GitHubDesktop.zip"
+        unzip input/GitHubDesktop.zip -d input/
+        app_path=$(find input -name "*.app" -type d | head -n 1)
+        pkgbuild --install-location "/Applications" --component "$app_path" "input/GitHubDesktop.pkg"
+
+    - name: Download Intune App Wrapping Tool for macOS
+      run: |
+        curl -L "https://github.com/microsoftconnect/intune-app-wrapping-tool-mac/releases/latest/download/IntuneAppUtil" -o tools/IntuneAppUtil
+        chmod +x tools/IntuneAppUtil
+
+    - name: Wrap Visual Studio Code
+      run: |
+        ./tools/IntuneAppUtil -c input/VSCode.pkg -o output/
+
+    - name: Wrap Google Chrome
+      run: |
+        ./tools/IntuneAppUtil -c input/Chrome.pkg -o output/
+
+    - name: Wrap Microsoft Edge
+      run: |
+        ./tools/IntuneAppUtil -c input/Edge.pkg -o output/
+
+    - name: Wrap GitHub Desktop
+      run: |
+        ./tools/IntuneAppUtil -c input/GitHubDesktop.pkg -o output/
+
+    - name: Upload packaged .intunemac files
+      uses: actions/upload-artifact@v4
+      with:
+        name: intunemac-packages
+        path: output/*.intunemac
