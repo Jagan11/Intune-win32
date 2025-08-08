@@ -1,0 +1,102 @@
+name: Package macOS Apps as IntuneMac
+
+on:
+  workflow_dispatch:
+
+jobs:
+  package-apps:
+    runs-on: macos-latest
+    steps:
+      - name: Setup directories
+        run: |
+          mkdir -p input output tools
+
+      # ---------------------------
+      # 1. Download and Package VSCode
+      # ---------------------------
+      - name: Download VSCode
+        run: |
+          curl -L "https://update.code.visualstudio.com/latest/darwin/stable" -o "input/VSCode.zip"
+          unzip -q input/VSCode.zip -d input/
+          pkgbuild --install-location /Applications --component "input/Visual Studio Code.app" "input/VSCode.pkg"
+
+      # ---------------------------
+      # 2. Download and Package GitHub Desktop
+      # ---------------------------
+      - name: Download GitHub Desktop
+        run: |
+          curl -L "https://central.github.com/deployments/desktop/desktop/latest/darwin" -o "input/GitHubDesktop.zip"
+          unzip -q input/GitHubDesktop.zip -d input/
+          pkgbuild --install-location /Applications --component "input/GitHub Desktop.app" "input/GitHubDesktop.pkg"
+
+      # ---------------------------
+      # 3. Download and Package Chrome
+      # ---------------------------
+      - name: Download Chrome
+        run: |
+          curl -L "https://dl.google.com/chrome/mac/stable/GGRO/googlechrome.dmg" -o "input/Chrome.dmg"
+          hdiutil attach input/Chrome.dmg -nobrowse -quiet
+          cp -r "/Volumes/Google Chrome/Google Chrome.app" input/
+          hdiutil detach "/Volumes/Google Chrome" -quiet
+          pkgbuild --install-location /Applications --component "input/Google Chrome.app" "input/Chrome.pkg"
+
+      # ---------------------------
+      # 4. Download and Package Microsoft Edge
+      # ---------------------------
+      - name: Download Microsoft Edge
+        run: |
+          curl -L "https://msedges3.cdn.office.net/edgesvc/release/Darwin/Edge.pkg" -o "input/Edge.pkg"
+
+      # ---------------------------
+      # 5. Clone Intune App Wrapping Tool for macOS
+      # ---------------------------
+      - name: Clone Intune App Wrapping Tool
+        run: |
+          git clone https://github.com/msintuneappsdk/intune-app-wrapping-tool-macos.git tools/wrapper
+          chmod +x tools/wrapper/intune-app-wrapping-tool-macos
+
+      # ---------------------------
+      # 6. Wrap all .pkg installers into .intunemac format
+      # ---------------------------
+      - name: Wrap VSCode
+        run: |
+          ./tools/wrapper/intune-app-wrapping-tool-macos -i input/VSCode.pkg -o output/VSCode.intunemac
+
+      - name: Wrap GitHub Desktop
+        run: |
+          ./tools/wrapper/intune-app-wrapping-tool-macos -i input/GitHubDesktop.pkg -o output/GitHubDesktop.intunemac
+
+      - name: Wrap Chrome
+        run: |
+          ./tools/wrapper/intune-app-wrapping-tool-macos -i input/Chrome.pkg -o output/Chrome.intunemac
+
+      - name: Wrap Edge
+        run: |
+          ./tools/wrapper/intune-app-wrapping-tool-macos -i input/Edge.pkg -o output/Edge.intunemac
+
+      # ---------------------------
+      # 7. Upload all wrapped apps as artifacts
+      # ---------------------------
+      - name: Upload VSCode.intunemac
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-intunemac
+          path: output/VSCode.intunemac
+
+      - name: Upload GitHubDesktop.intunemac
+        uses: actions/upload-artifact@v4
+        with:
+          name: githubdesktop-intunemac
+          path: output/GitHubDesktop.intunemac
+
+      - name: Upload Chrome.intunemac
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-intunemac
+          path: output/Chrome.intunemac
+
+      - name: Upload Edge.intunemac
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-intunemac
+          path: output/Edge.intunemac
