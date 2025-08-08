@@ -45,7 +45,7 @@ jobs:
       # ---------------------------
       - name: Download Microsoft Edge
         run: |
-          curl -L "https://msedges3.cdn.office.net/edgesvc/release/Darwin/Edge.pkg" -o "input/Edge.pkg"
+          curl -L "https://go.microsoft.com/fwlink/?linkid=2069148" -o "input/Edge.pkg"
 
       # ---------------------------
       # 5. Clone Intune App Wrapping Tool for macOS
@@ -57,7 +57,7 @@ jobs:
 
       # ---------------------------
       # 6. Wrap all .pkg installers into .intunemac format
-      # ---------------------------
+      ---------------------------
       - name: Wrap VSCode
         run: |
           ./tools/wrapper/intune-app-wrapping-tool-macos -i input/VSCode.pkg -o output/VSCode.intunemac
