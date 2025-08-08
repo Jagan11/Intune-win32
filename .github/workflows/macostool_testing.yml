@@ -1,4 +1,4 @@
-name: Package macOS Apps as IntuneMac
+name: Package macOS Apps as IntuneMac-testtool
 
 on:
   workflow_dispatch:
