@@ -19,9 +19,11 @@ jobs:
 
       - name: Download IntuneAppUtil tool
         run: |
-          curl -L -o tools/IntuneAppUtil "https://github.com/msintuneappshell/intune-app-wrapping-tool-macos/releases/latest/download/IntuneAppUtil"
+          curl --fail -L -o tools/IntuneAppUtil "https://github.com/msintuneappshell/intune-app-wrapping-tool-macos/releases/latest/download/IntuneAppUtil"
           chmod +x tools/IntuneAppUtil
           echo "Downloaded IntuneAppUtil"
+          file tools/IntuneAppUtil
+          head -n 5 tools/IntuneAppUtil
 
       # Optional: Download example .dmg file if none exists, remove if you commit your own DMGs
       - name: Add example .dmg file (optional)
@@ -35,7 +37,6 @@ jobs:
       - name: Wrap all .dmg files to .intunemac format
         run: |
           for dmg in dmg_files/*.dmg; do
-            app_name=$(basename "$dmg" .dmg)
             echo "Wrapping $dmg..."
             ./tools/IntuneAppUtil -c "$dmg" -o output/
           done
