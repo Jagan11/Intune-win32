@@ -1,4 +1,4 @@
-name: Package macOS apps for Intune
+name: Package macOS apps for Intune (pkg + dmg)
 
 on:
   workflow_dispatch:
@@ -11,54 +11,81 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Set up directories safely
-      run: |
-        [ -d input ] || mkdir input
-        [ -d output ] || mkdir output
-        [ -d tools ] || mkdir tools
+    - name: Set up directories
+      run: mkdir -p input output tools dmg_files
 
-    - name: Download Visual Studio Code
+    # ---------------------------
+    # VSCode: pkg + dmg (zip is primary but we keep pkg)
+    # ---------------------------
+    - name: Download VSCode pkg
       run: |
         curl -L "https://code.visualstudio.com/sha/download?build=stable&os=darwin-universal" -o "input/VSCode.pkg"
-
-    - name: Download Google Chrome
+    - name: Download VSCode dmg
       run: |
-        curl -L "https://dl.google.com/chrome/mac/stable/GGRO/googlechrome.pkg" -o "input/Chrome.pkg"
+        curl -L "https://update.code.visualstudio.com/latest/darwin/stable" -o "dmg_files/VSCode.zip"
 
-    - name: Download Microsoft Edge
+    # ---------------------------
+    # GitHub Desktop: pkg + dmg (zip + pkg)
+    # ---------------------------
+    - name: Download GitHub Desktop zip and create pkg
       run: |
-        curl -L "https://go.microsoft.com/fwlink/?linkid=2069148" -o "input/Edge.pkg"
-
-    - name: Download GitHub Desktop and convert to pkg
-      run: |
-        curl -L "https://central.github.com/deployments/desktop/desktop/latest/darwin" -o "input/GitHubDesktop.zip"
-        unzip input/GitHubDesktop.zip -d input/
-        app_path=$(find input -name "*.app" -type d | head -n 1)
+        curl -L "https://central.github.com/deployments/desktop/desktop/latest/darwin" -o "dmg_files/GitHubDesktop.zip"
+        unzip -q dmg_files/GitHubDesktop.zip -d dmg_files/
+        app_path=$(find dmg_files -name "*.app" -type d | head -n1)
         pkgbuild --install-location "/Applications" --component "$app_path" "input/GitHubDesktop.pkg"
 
-    - name: Download Intune App Wrapping Tool for macOS
+    # ---------------------------
+    # Chrome: dmg + pkg (pkg built from dmg)
+    # ---------------------------
+    - name: Download Chrome dmg
+      run: curl -L "https://dl.google.com/chrome/mac/stable/GGRO/googlechrome.dmg" -o "dmg_files/Chrome.dmg"
+    - name: Mount Chrome dmg and create pkg
+      run: |
+        hdiutil attach dmg_files/Chrome.dmg -nobrowse -quiet
+        cp -r "/Volumes/Google Chrome/Google Chrome.app" dmg_files/
+        hdiutil detach "/Volumes/Google Chrome" -quiet
+        pkgbuild --install-location "/Applications" --component "dmg_files/Google Chrome.app" "input/Chrome.pkg"
+
+    # ---------------------------
+    # Microsoft Edge: pkg + dmg (dmg download link is not official, so only pkg here)
+    # ---------------------------
+    - name: Download Microsoft Edge pkg
+      run: curl -L "https://go.microsoft.com/fwlink/?linkid=2069148" -o "input/Edge.pkg"
+
+    # ---------------------------
+    # Download Intune App Wrapping Tool for macOS
+    # ---------------------------
+    - name: Download Intune App Wrapping Tool
       run: |
         curl -L "https://github.com/microsoftconnect/intune-app-wrapping-tool-mac/releases/latest/download/IntuneAppUtil" -o tools/IntuneAppUtil
         chmod +x tools/IntuneAppUtil
 
-    - name: Wrap Visual Studio Code
-      run: |
-        ./tools/IntuneAppUtil -c input/VSCode.pkg -o output/
+    # ---------------------------
+    # Wrap .pkg files to .intunemac
+    # ---------------------------
+    - name: Wrap VSCode pkg
+      run: ./tools/IntuneAppUtil -c input/VSCode.pkg -o output/
+    - name: Wrap GitHub Desktop pkg
+      run: ./tools/IntuneAppUtil -c input/GitHubDesktop.pkg -o output/
+    - name: Wrap Chrome pkg
+      run: ./tools/IntuneAppUtil -c input/Chrome.pkg -o output/
+    - name: Wrap Edge pkg
+      run: ./tools/IntuneAppUtil -c input/Edge.pkg -o output/
 
-    - name: Wrap Google Chrome
-      run: |
-        ./tools/IntuneAppUtil -c input/Chrome.pkg -o output/
-
-    - name: Wrap Microsoft Edge
-      run: |
-        ./tools/IntuneAppUtil -c input/Edge.pkg -o output/
-
-    - name: Wrap GitHub Desktop
-      run: |
-        ./tools/IntuneAppUtil -c input/GitHubDesktop.pkg -o output/
-
-    - name: Upload packaged .intunemac files
+    # ---------------------------
+    # Upload .intunemac files
+    # ---------------------------
+    - name: Upload intunemac packages
       uses: actions/upload-artifact@v4
       with:
         name: intunemac-packages
         path: output/*.intunemac
+
+    # ---------------------------
+    # Upload dmg / zip installers for flexibility
+    # ---------------------------
+    - name: Upload dmg and zip installers
+      uses: actions/upload-artifact@v4
+      with:
+        name: dmg-and-zip-installers
+        path: dmg_files/*.{dmg,zip}
