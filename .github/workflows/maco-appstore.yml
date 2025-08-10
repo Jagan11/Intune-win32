@@ -1,3 +1,8 @@
+name: Get macOS App DMGs for Intune
+
+on:
+  workflow_dispatch: # Allows manual triggering of the workflow
+
 jobs:
   vscode-dmg:
     runs-on: macos-latest
@@ -5,27 +10,25 @@ jobs:
       - name: Create directories
         run: |
           mkdir -p input output
-      
       - name: Download latest VSCode macOS Universal (ZIP)
         run: |
           curl -L "https://update.code.visualstudio.com/latest/darwin-universal/stable" -o "input/VSCode.zip"
-
       - name: Unzip VSCode and set app path
         run: |
           unzip -q input/VSCode.zip -d input/
+          # Find the actual .app bundle path, as it might be nested
           VSCODE_APP_FULL_PATH=$(find input -maxdepth 2 -name "Visual Studio Code.app" -type d | head -n 1)
           if [ -z "$VSCODE_APP_FULL_PATH" ]; then
             echo "Error: Visual Studio Code.app not found after unzipping."
             exit 1
           fi
           echo "VSCODE_APP_FULL_PATH=$VSCODE_APP_FULL_PATH" >> $GITHUB_ENV
-
       - name: Get VSCode version
         run: |
+          # Read the version using the correct path
           VERSION=$(defaults read "$VSCODE_APP_FULL_PATH/Contents/Info.plist" CFBundleShortVersionString || echo "unknown")
           echo "VSCODE_VERSION=$VERSION" >> $GITHUB_ENV
           echo "VSCode version: $VERSION"
-
       - name: Create VSCode DMG from app bundle
         run: |
           set -eux
@@ -40,7 +43,7 @@ jobs:
           echo "hdiutil attach output:"
           echo "$MOUNT_OUTPUT"
 
-          # CORRECTED LINE: This will now correctly capture the full mount path
+          # Extract the mount point correctly, handling spaces
           MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | awk '{$1=$2=$3=""; sub(/^[ \t]+/, ""); print}')
           echo "Mounted DMG at: $MOUNTPOINT"
 
@@ -60,9 +63,95 @@ jobs:
           mv "$TEMP_DMG_PATH" "$FINAL_DMG"
 
           echo "Created DMG: $FINAL_DMG"
-
       - name: Upload VSCode DMG as artifact
         uses: actions/upload-artifact@v4
         with:
           name: vscode-dmg
           path: output/*.dmg
+
+---
+
+  github-desktop-dmg:
+    runs-on: macos-latest
+    steps:
+      - name: Create directories
+        run: |
+          mkdir -p input output
+      - name: Download latest GitHub Desktop macOS Universal (ZIP)
+        run: |
+          curl -L "https://central.github.com/deployments/desktop/desktop/latest/darwin" -o "input/GitHubDesktop.zip"
+      - name: Unzip GitHub Desktop and set app path
+        run: |
+          unzip -q input/GitHubDesktop.zip -d input/
+          # Find the actual .app bundle path, as it might be nested
+          GITHUB_APP_FULL_PATH=$(find input -maxdepth 2 -name "GitHub Desktop.app" -type d | head -n 1)
+          if [ -z "$GITHUB_APP_FULL_PATH" ]; then
+            echo "Error: GitHub Desktop.app not found after unzipping."
+            exit 1
+          fi
+          echo "GITHUB_APP_FULL_PATH=$GITHUB_APP_FULL_PATH" >> $GITHUB_ENV
+      - name: Get GitHub Desktop version
+        run: |
+          # Read the version using the correct path
+          VERSION=$(defaults read "$GITHUB_APP_FULL_PATH/Contents/Info.plist" CFBundleShortVersionString || echo "unknown")
+          echo "GHDESKTOP_VERSION=$VERSION" | tee -a $GITHUB_ENV
+          echo "GitHub Desktop version: $VERSION"
+      - name: Create GitHub Desktop DMG from app bundle
+        run: |
+          set -eux
+          TEMP_DMG_PATH="output/GitHubDesktop-temp.dmg"
+          VOL_NAME="GitHub Desktop"
+
+          echo "Creating DMG at $TEMP_DMG_PATH"
+          hdiutil create -size 500m -fs HFS+ -volname "$VOL_NAME" -ov -quiet -o "$TEMP_DMG_PATH"
+
+          echo "Attaching DMG..."
+          MOUNT_OUTPUT=$(hdiutil attach "$TEMP_DMG_PATH" -nobrowse -noverify)
+          echo "hdiutil attach output:"
+          echo "$MOUNT_OUTPUT"
+
+          # Extract the mount point correctly, handling spaces
+          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | awk '{$1=$2=$3=""; sub(/^[ \t]+/, ""); print}')
+          echo "Mounted DMG at: $MOUNTPOINT"
+
+          if [ -z "$MOUNTPOINT" ]; then
+            echo "Error: Could not find mount point."
+            exit 1
+          fi
+
+          echo "Copying app to DMG..."
+          cp -R "$GITHUB_APP_FULL_PATH" "$MOUNTPOINT/"
+
+          echo "Detaching DMG..."
+          hdiutil detach "$MOUNTPOINT" -quiet
+
+          FINAL_DMG="output/GitHubDesktop-macOS-universal-$GHDESKTOP_VERSION.dmg"
+          echo "Renaming DMG to $FINAL_DMG"
+          mv "$TEMP_DMG_PATH" "$FINAL_DMG"
+
+          echo "Created DMG: $FINAL_DMG"
+      - name: Upload GitHub Desktop DMG as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-desktop-dmg
+          path: output/*.dmg
+
+---
+
+  chrome-dmg:
+    runs-on: macos-latest
+    steps:
+      - name: Create directories
+        run: |
+          mkdir -p input output
+      - name: Download latest Google Chrome macOS Universal (DMG)
+        run: |
+          curl -L "https://dl.google.com/chrome/mac/stable/GGRO/googlechrome.dmg" -o "output/GoogleChrome-macOS-universal.dmg"
+      - name: Get Chrome version
+        run: |
+          set -eux
+          DMG_PATH="output/GoogleChrome-macOS-universal.dmg"
+          VOL_NAME="Google Chrome"
+
+          echo "Attaching DMG for version check..."
+          MOUNT_OUTPUT=$(hdiutil attach "$DM
