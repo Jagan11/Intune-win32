@@ -1,26 +1,27 @@
 name: Package Homebrew Installer for Intune
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Allows manual triggering of the workflow from GitHub UI
 
 jobs:
   package-intunemac:
-    runs-on: macos-latest
+    runs-on: macos-latest # Requires a macOS runner to use native Apple tools
 
     steps:
       - name: Prepare folders
         run: |
-          mkdir -p input output tools
+          mkdir -p input output tools # Create directories for organization
 
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v3 # Clones your repository into the runner's workspace
 
-      - name: Download Homebrew install script
+      - name: Prepare install scripts
         run: |
-          echo "Downloading official Homebrew install script..."
-          curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o input/install_homebrew.sh
-          chmod +x input/install_homebrew.sh
-          echo "Homebrew install script downloaded."
+          if [ ! -f "install_homebrew.sh" ]; then
+            echo "Error: install_homebrew.sh not found at repository root. Please ensure it's committed."
+            exit 1
+          fi
+          cp install_homebrew.sh input/install_homebrew.sh 
 
       - name: Create wrapper install script
         run: |
@@ -28,7 +29,6 @@ jobs:
 #!/bin/bash
 echo "Starting Homebrew installation via wrapper script..."
 NONINTERACTIVE=1 /bin/bash "$(dirname "$0")/install_homebrew.sh"
-/bin/bash -c "$(dirname "$0")/install_homebrew.sh"
 if [ $? -ne 0 ]; then
   echo "Homebrew installation failed."
   exit 1
@@ -40,21 +40,20 @@ EOF
 
       - name: Download Intune App Wrapping Tool for macOS
         run: |
-          if [ -d "tools/intune-app-utility-repo" ]; then
-            rm -rf tools/intune-app-utility-repo
-          fi
+          echo "Cloning Intune App Utility repository for reliable download..."
           git clone https://github.com/microsoft/shell-intune-app-utility.git tools/intune-app-utility-repo
+          echo "Moving IntuneAppUtil executable to tools/..."
           mv tools/intune-app-utility-repo/IntuneAppUtil tools/IntuneAppUtil
           chmod +x tools/IntuneAppUtil
+          echo "IntuneAppUtil downloaded and made executable."
+          echo "Cleaning up temporary git repository..."
           rm -rf tools/intune-app-utility-repo
-          echo "Intune App Wrapping Tool ready."
 
       - name: Wrap script into .intunemac
         run: |
-          ./tools/IntuneAppUtil \
-            -c input/run_homebrew_install.sh \
-            -o output/HomebrewInstaller.intunemac
-          echo "HomebrewInstaller.intunemac created."
+          echo "Wrapping input/run_homebrew_install.sh into output/HomebrewInstaller.intunemac..."
+          ./tools/IntuneAppUtil -c input/run_homebrew_install.sh -o output/HomebrewInstaller.intunemac
+          echo "HomebrewInstaller.intunemac created successfully."
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
