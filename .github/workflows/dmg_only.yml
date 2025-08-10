@@ -1,4 +1,4 @@
-name: Package VSCode DMG for Intune vscode
+name: Package VSCode DMG for Intune
 
 on:
   workflow_dispatch:
@@ -16,23 +16,20 @@ jobs:
         run: |
           curl -L "https://update.code.visualstudio.com/latest/darwin/stable" -o "input/VSCode.dmg"
 
-      # 3. Download Intune App Wrapping Tool (more robust method)
+      # 3. Download Intune App Wrapping Tool (robust method: clone repo)
       - name: Download Intune App Wrapping Tool
         run: |
-          # Download the main branch source code archive directly
-          curl -L "https://github.com/microsoft/shell-intune-app-utility/archive/main.tar.gz" -o tools/IntuneAppUtility.tar.gz
+          # Clone the repository containing the IntuneAppUtil script
+          git clone https://github.com/microsoft/shell-intune-app-utility.git tools/intune-app-utility-repo
           
-          # Extract the archive into the tools directory
-          tar -xzf tools/IntuneAppUtility.tar.gz -C tools/
+          # Move the IntuneAppUtil script to the main tools directory
+          mv tools/intune-app-utility-repo/IntuneAppUtil tools/IntuneAppUtil
           
-          # The executable is located inside the extracted folder (e.g., shell-intune-app-utility-main)
-          # Move it to the top-level 'tools' directory and make it executable
-          mv tools/shell-intune-app-utility-main/IntuneAppUtil tools/IntuneAppUtil
+          # Make the script executable
           chmod +x tools/IntuneAppUtil
           
-          # Clean up the downloaded archive and the extracted source folder
-          rm tools/IntuneAppUtility.tar.gz
-          rm -rf tools/shell-intune-app-utility-main/
+          # Clean up the cloned repository folder
+          rm -rf tools/intune-app-utility-repo
 
       # 4. Wrap VSCode DMG into Intune format
       - name: Wrap VSCode DMG
