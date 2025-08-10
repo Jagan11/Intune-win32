@@ -1,6 +1,34 @@
-- name: Create wrapper install script
-  run: |
-    cat <<'EOF' > input/run_homebrew_install.sh
+name: Package Homebrew Installer for Intune
+
+on:
+  workflow_dispatch: # manual trigger
+
+jobs:
+  package-intunemac:
+    runs-on: macos-latest
+
+    steps:
+      - name: Prepare folders
+        run: |
+          mkdir -p input output tools
+
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Verify install_homebrew.sh exists
+        run: |
+          if [ ! -f "install_homebrew.sh" ]; then
+            echo "Error: install_homebrew.sh not found at repository root. Please commit it."
+            exit 1
+          fi
+
+      - name: Copy install_homebrew.sh to input/
+        run: |
+          cp install_homebrew.sh input/install_homebrew.sh
+
+      - name: Create wrapper install script
+        run: |
+          cat <<'EOF' > input/run_homebrew_install.sh
 #!/bin/bash
 echo "Starting Homebrew installation via wrapper script..."
 NONINTERACTIVE=1 /bin/bash "$(dirname "$0")/install_homebrew.sh"
@@ -10,5 +38,24 @@ if [ $? -ne 0 ]; then
 fi
 echo "Homebrew installation completed successfully."
 EOF
-    chmod +x input/run_homebrew_install.sh
-    echo "Wrapper script created."
+          chmod +x input/run_homebrew_install.sh
+          echo "Wrapper script created."
+
+      - name: Download Intune App Wrapping Tool for macOS
+        run: |
+          git clone https://github.com/microsoft/shell-intune-app-utility.git tools/intune-app-utility-repo
+          mv tools/intune-app-utility-repo/IntuneAppUtil tools/IntuneAppUtil
+          chmod +x tools/IntuneAppUtil
+          rm -rf tools/intune-app-utility-repo
+
+      - name: Wrap script into .intunemac
+        run: |
+          ./tools/IntuneAppUtil -c input/run_homebrew_install.sh -o output/HomebrewInstaller.intunemac
+          echo "HomebrewInstaller.intunemac created successfully."
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: homebrew-installer-intunemac
+          path: output/HomebrewInstaller.intunemac
+          retention-days: 7
