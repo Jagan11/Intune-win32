@@ -38,16 +38,16 @@ jobs:
           chmod +x scripts/run_homebrew_install.sh
           echo "Wrapper script created."
 
-      - name: Checkout Intune App Wrapping Tool
+      - name: Checkout Intune Shell Scripts Samples
         uses: actions/checkout@v3
         with:
-          repository: microsoft/shell-intune-app-utility
+          repository: microsoft/shell-intune-samples
           ref: main
           path: tools/intune-app-utility-repo
 
-      - name: Prepare Intune App Utility
+      - name: Prepare Intune Utility
         run: |
-          mv tools/intune-app-utility-repo/IntuneAppUtil tools/IntuneAppUtil
+          mv tools/intune-app-utility-repo/macOS/Apps/Company\ Portal/installCompanyPortal.sh tools/IntuneAppUtil
           chmod +x tools/IntuneAppUtil
           rm -rf tools/intune-app-utility-repo
 
