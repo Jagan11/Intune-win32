@@ -1,54 +1,42 @@
-name: Wrap macOS DMG to Intune format
+name: Package VSCode as IntuneMac
 
 on:
   workflow_dispatch:
 
 jobs:
-  wrap-apps:
+  package-vscode:
     runs-on: macos-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
       - name: Set up directories
         run: |
-          for dir in input output tools dmg_files; do
-            [ -f "$dir" ] && rm -f "$dir"
-            mkdir -p "$dir"
-          done
+          mkdir -p input output tools
 
-      - name: Download IntuneAppUtil tool
+      - name: Download VSCode DMG
         run: |
-          curl --fail -L -o tools/IntuneAppUtil "https://github.com/msintuneappshell/intune-app-wrapping-tool-macos/releases/latest/download/IntuneAppUtil"
+          curl -L "https://update.code.visualstudio.com/latest/darwin/stable" -o "input/VSCode.dmg"
+
+      - name: Mount VSCode DMG and copy .app
+        run: |
+          hdiutil attach input/VSCode.dmg -nobrowse -quiet
+          cp -R "/Volumes/Visual Studio Code/Visual Studio Code.app" input/
+          hdiutil detach "/Volumes/Visual Studio Code" -quiet
+
+      - name: Build VSCode .pkg installer
+        run: |
+          pkgbuild --install-location /Applications --component "input/Visual Studio Code.app" "input/VSCode.pkg"
+
+      - name: Download Intune App Wrapping Tool for macOS
+        run: |
+          mkdir -p tools
+          curl -L -o tools/IntuneAppUtil "https://github.com/msintuneappshell/intune-app-wrapping-tool-macos/releases/latest/download/IntuneAppUtil"
           chmod +x tools/IntuneAppUtil
-          echo "Downloaded IntuneAppUtil"
-          file tools/IntuneAppUtil
-          head -n 5 tools/IntuneAppUtil
 
-      # Optional: Download example .dmg file if none exists, remove if you commit your own DMGs
-      - name: Add example .dmg file (optional)
+      - name: Wrap VSCode .pkg to .intunemac
         run: |
-          if [ ! "$(ls -A dmg_files)" ]; then
-            curl -L -o dmg_files/example.dmg "https://dl.google.com/chrome/mac/stable/GGRO/googlechrome.dmg"
-          else
-            echo "dmg_files directory is not empty, skipping download."
-          fi
+          ./tools/IntuneAppUtil -c input/VSCode.pkg -o output/VSCode.intunemac
 
-      - name: Wrap all .dmg files to .intunemac format
-        run: |
-          for dmg in dmg_files/*.dmg; do
-            echo "Wrapping $dmg..."
-            ./tools/IntuneAppUtil -c "$dmg" -o output/
-          done
-
-      - name: Upload wrapped .intunemac files
+      - name: Upload VSCode package artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wrapped-intunemac-apps
-          path: output/*.intunemac
-
-      - name: Upload original .dmg files
-        uses: actions/upload-artifact@v4
-        with:
-          name: dmg-source-files
-          path: dmg_files/*.dmg
+          name: vscode-intunemac
+          path: output/VSCode.intunemac
