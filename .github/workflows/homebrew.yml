@@ -15,27 +15,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Prepare install scripts
+      - name: Download Homebrew install script
         run: |
-          if [ ! -f "install_homebrew.sh" ]; then
-            echo "Error: install_homebrew.sh not found at repository root."
-            exit 1
-          fi
+          echo "Downloading official Homebrew install script..."
+          curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o input/install_homebrew.sh
+          chmod +x input/install_homebrew.sh
+          echo "Homebrew install script downloaded."
 
-          cp install_homebrew.sh input/install_homebrew.sh
-
-          # Correct heredoc format — no leading spaces before EOF content
+      - name: Create wrapper install script
+        run: |
           cat <<'EOF' > input/run_homebrew_install.sh
 #!/bin/bash
 echo "Starting Homebrew installation via wrapper script..."
 NONINTERACTIVE=1 /bin/bash "$(dirname "$0")/install_homebrew.sh"
+/bin/bash -c "$(dirname "$0")/install_homebrew.sh"
 if [ $? -ne 0 ]; then
   echo "Homebrew installation failed."
   exit 1
 fi
 echo "Homebrew installation completed successfully."
 EOF
-
           chmod +x input/run_homebrew_install.sh
           echo "Wrapper script created."
 
@@ -48,12 +47,14 @@ EOF
           mv tools/intune-app-utility-repo/IntuneAppUtil tools/IntuneAppUtil
           chmod +x tools/IntuneAppUtil
           rm -rf tools/intune-app-utility-repo
+          echo "Intune App Wrapping Tool ready."
 
       - name: Wrap script into .intunemac
         run: |
           ./tools/IntuneAppUtil \
             -c input/run_homebrew_install.sh \
             -o output/HomebrewInstaller.intunemac
+          echo "HomebrewInstaller.intunemac created."
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
