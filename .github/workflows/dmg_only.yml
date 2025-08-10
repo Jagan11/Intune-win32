@@ -1,59 +1,39 @@
-name: Get macOS App DMGs for Intune
+name: Package VSCode for Intune vscode
 
 on:
-  workflow_dispatch: # Allows manual triggering of the workflow
+  workflow_dispatch:
 
 jobs:
-  vscode-dmg:
+  package-vscode:
     runs-on: macos-latest
     steps:
-      - name: Create directories
-        run: |
-          mkdir -p input output
-      - name: Download latest VSCode macOS Universal (ZIP)
-        run: |
-          curl -L "https://update.code.visualstudio.com/latest/darwin-universal/stable" -o "input/VSCode.zip"
-      - name: Unzip VSCode and move app bundle
-        run: |
-          # Create a temporary directory for unzipping to avoid cluttering 'input/' directly
-          mkdir -p input/temp_unzip
-          unzip -q input/VSCode.zip -d input/temp_unzip/
+      - name: Setup directories
+        run: mkdir -p input output tools
 
-          # Find the .app bundle within the unzipped content. It's often one level deeper.
-          # Use find to locate the actual app path.
-          VSCODE_APP_FOUND_PATH=$(find input/temp_unzip -maxdepth 2 -name "Visual Studio Code.app" -type d | head -n 1)
-
-          if [ -z "$VSCODE_APP_FOUND_PATH" ]; then
-            echo "Error: Visual Studio Code.app not found in the unzipped directory."
-            exit 1
-          fi
-
-          # Move the .app bundle directly into the top-level input directory
-          mv "$VSCODE_APP_FOUND_PATH" "input/"
-
-          # Clean up the temporary unzip directory
-          rm -rf input/temp_unzip
-
-          # Set VSCODE_APP_PATH to the definitive location (input/Visual Code.app)
-          echo "VSCODE_APP_PATH=input/Visual Studio Code.app" | tee -a $GITHUB_ENV
-      - name: Get VSCode version
+      - name: Download VSCode ZIP
         run: |
-          # Now that the .app is at input/Visual Studio Code.app, defaults read should work
-          VERSION=$(defaults read "input/Visual Studio Code.app/Contents/Info.plist" CFBundleShortVersionString)
-          echo "VSCODE_VERSION=$VERSION" | tee -a $GITHUB_ENV
-          echo "VSCode version: $VERSION"
-      - name: Create VSCode DMG from app bundle
+          curl -L "https://update.code.visualstudio.com/latest/darwin/stable" -o "input/VSCode.zip"
+          unzip -q input/VSCode.zip -d input/
+
+      - name: Build VSCode PKG
         run: |
-          TEMP_DMG_PATH="output/VSCode-temp.dmg"
-          hdiutil create -size 500m -fs HFS+ -volname "Visual Studio Code" -o "$TEMP_DMG_PATH"
-          hdiutil attach "$TEMP_DMG_PATH" -nobrowse -quiet
-          # Use the directly moved app bundle from input/
-          cp -r "input/Visual Studio Code.app" "/Volumes/Visual Studio Code/"
-          hdiutil detach "/Volumes/Visual Studio Code" -quiet
-          mv "$TEMP_DMG_PATH" "output/VSCode-macOS-universal-$VSCODE_VERSION.dmg"
-          echo "Created DMG: output/VSCode-macOS-universal-$VSCODE_VERSION.dmg"
-      - name: Upload VSCode DMG as artifact
+          pkgbuild --install-location /Applications \
+          --component "input/Visual Studio Code.app" \
+          "input/VSCode.pkg"
+
+      - name: Download Intune App Wrapping Tool
+        run: |
+          curl -L "https://github.com/msintuneappshell/intune-app-wrapping-tool-macos/releases/latest/download/IntuneAppUtil" -o tools/IntuneAppUtil
+          chmod +x tools/IntuneAppUtil
+
+      - name: Wrap VSCode PKG into IntuneMac
+        run: |
+          ./tools/IntuneAppUtil -c input/VSCode.pkg -o output/VSCode.intunemac
+
+      - name: Upload packaged files
         uses: actions/upload-artifact@v4
         with:
-          name: vscode-dmg
-          path: output/*.dmg
+          name: vscode-packages
+          path: |
+            input/VSCode.pkg
+            output/VSCode.intunemac
