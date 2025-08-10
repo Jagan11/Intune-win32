@@ -9,53 +9,56 @@ jobs:
     steps:
       - name: Create directories
         run: |
-          mkdir -p output
-
-      - name: Get latest Node.js LTS version with macOS PKGs
+          mkdir -p input output
+      
+      - name: Get latest Node.js LTS version and download URL
         run: |
-          set -eux
+          set -eux # Enable strict error checking and command tracing
+
+          # Fetch Node.js version information from nodejs.org API
+          NODE_INDEX=$(curl -s "https://nodejs.org/dist/index.json")
           
-          # Fetch Node.js release index
-          NODE_INDEX=$(curl -s https://nodejs.org/dist/index.json)
-
-          # Find latest LTS version that has both darwin-x64 and darwin-arm64 PKG installers
-          LTS_VERSION=$(echo "$NODE_INDEX" | jq -r '
-            .[]
-            | select(.lts != false and .lts != null)
-            | select((.files | type) == "array")
-            | select(index("darwin-x64") and index("darwin-arm64"))
-            | .version
-          ' | head -n 1)
-
-          if [ -z "$LTS_VERSION" ]; then
-            echo "Error: No LTS version with both macOS PKGs found."
+          # Find the latest LTS release that has a 'version' and 'files' for 'osx-x64' PKG
+          LTS_DATA=$(echo "$NODE_INDEX" | jq '.[] | select(.lts != false and .lts != null) | select(.files | contains(["osx-x64", "headers", "npm"])) | .version' | head -n 1 | tr -d 'v')
+          
+          if [ -z "$LTS_DATA" ]; then
+            echo "Error: Could not determine latest LTS Node.js version with 'osx-x64' PKG."
             exit 1
           fi
 
-          echo "Found LTS version: $LTS_VERSION"
+          LTS_VERSION="v$LTS_DATA"
+          
+          # Construct download URL for the macOS PKG installer (x64 for broader compatibility)
+          INSTALLER_FILENAME="node-$LTS_VERSION-darwin-x64.pkg"
+          DOWNLOAD_URL="https://nodejs.org/dist/$LTS_VERSION/$INSTALLER_FILENAME"
+          
           echo "NODEJS_VERSION=$LTS_VERSION" >> $GITHUB_ENV
+          echo "NODEJS_DOWNLOAD_URL=$DOWNLOAD_URL" >> $GITHUB_ENV
+          echo "NODEJS_INSTALLER_FILENAME=$INSTALLER_FILENAME" >> $GITHUB_ENV
 
-      - name: Download Node.js PKGs
+          echo "Found Node.js LTS version: $LTS_VERSION"
+          echo "Download URL: $DOWNLOAD_URL"
+          echo "Installer filename: $INSTALLER_FILENAME"
+
+      - name: Download Node.js PKG
         run: |
-          set -eux
-          ARCHS=("darwin-x64" "darwin-arm64")
+          set -eux # Enable strict error checking and command tracing
+          curl -L "$NODEJS_DOWNLOAD_URL" -o "output/$NODEJS_INSTALLER_FILENAME"
+          echo "Downloaded Node.js PKG: output/$NODEJS_INSTALLER_FILENAME"
 
-          for ARCH in "${ARCHS[@]}"; do
-            INSTALLER_FILENAME="node-${NODEJS_VERSION}-${ARCH}.pkg"
-            DOWNLOAD_URL="https://nodejs.org/dist/${NODEJS_VERSION}/${INSTALLER_FILENAME}"
-            echo "Downloading $DOWNLOAD_URL"
-            curl -L "$DOWNLOAD_URL" -o "output/$INSTALLER_FILENAME"
+          # Add a size check to ensure the downloaded file is not too small (e.g., less than 10 MB)
+          FILE_SIZE_BYTES=$(stat -f %z "output/$NODEJS_INSTALLER_FILENAME")
+          MIN_EXPECTED_SIZE_BYTES=10000000 # 10 MB in bytes
 
-            # Verify file size (at least 10 MB)
-            FILE_SIZE_BYTES=$(stat -f %z "output/$INSTALLER_FILENAME")
-            if [ "$FILE_SIZE_BYTES" -lt 10000000 ]; then
-              echo "Error: $INSTALLER_FILENAME is too small ($FILE_SIZE_BYTES bytes)."
-              exit 1
-            fi
-          done
+          if [ "$FILE_SIZE_BYTES" -lt "$MIN_EXPECTED_SIZE_BYTES" ]; then
+            echo "Error: Downloaded PKG file is too small ($FILE_SIZE_BYTES bytes). Expected at least $MIN_EXPECTED_SIZE_BYTES bytes. Download likely failed."
+            exit 1
+          else
+            echo "Downloaded PKG size: $FILE_SIZE_BYTES bytes (looks good)."
+          fi
 
-      - name: Upload Node.js PKGs as artifact
+      - name: Upload Node.js PKG as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nodejs-pkgs
+          name: nodejs-pkg
           path: output/*.pkg
