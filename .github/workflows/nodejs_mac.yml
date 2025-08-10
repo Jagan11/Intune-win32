@@ -1,4 +1,4 @@
-name: Get Universal Node.js PKGs for Intune
+name: Get Universal Node.js LTS PKGs for Intune
 
 on:
   workflow_dispatch:
@@ -8,24 +8,26 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Create directories
-        run: |
-          mkdir -p output
-      
-      - name: Get latest Node.js LTS version
+        run: mkdir -p output
+
+      - name: Get latest Node.js LTS version with macOS PKGs
         run: |
           set -eux
           NODE_INDEX=$(curl -s "https://nodejs.org/dist/index.json")
 
-          # Get latest LTS version
-          LTS_VERSION=$(echo "$NODE_INDEX" | jq -r '.[] | select(.lts != false and .lts != null) | .version' | head -n 1)
+          # Find the latest LTS release that has both darwin-x64 and darwin-arm64 PKGs
+          LTS_VERSION=$(echo "$NODE_INDEX" | jq -r '
+            .[] | select(.lts != false and .lts != null)
+            | select(.files | index("darwin-x64") and .files | index("darwin-arm64"))
+            | .version
+          ' | head -n 1)
 
           if [ -z "$LTS_VERSION" ]; then
-            echo "Error: Could not determine latest LTS Node.js version."
+            echo "Error: No LTS version with both macOS PKGs found."
             exit 1
           fi
 
           echo "Found LTS version: $LTS_VERSION"
-
           echo "NODEJS_VERSION=$LTS_VERSION" >> $GITHUB_ENV
 
       - name: Download both Intel & ARM installers
@@ -37,7 +39,7 @@ jobs:
             INSTALLER_FILENAME="node-${NODEJS_VERSION}-${ARCH}.pkg"
             DOWNLOAD_URL="https://nodejs.org/dist/${NODEJS_VERSION}/${INSTALLER_FILENAME}"
             echo "Downloading $DOWNLOAD_URL"
-            curl -L "$DOWNLOAD_URL" -o "output/$INSTALLER_FILENAME"
+            curl -fL "$DOWNLOAD_URL" -o "output/$INSTALLER_FILENAME"
 
             FILE_SIZE_BYTES=$(stat -f %z "output/$INSTALLER_FILENAME")
             if [ "$FILE_SIZE_BYTES" -lt 10000000 ]; then
