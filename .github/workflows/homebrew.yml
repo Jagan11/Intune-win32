@@ -1,0 +1,31 @@
+name: Package Homebrew Installer for Intune
+
+on:
+  workflow_dispatch:
+
+jobs:
+  package-intunemac:
+    runs-on: macos-latest
+    steps:
+      - name: Prepare folders
+        run: |
+          mkdir -p input output tools
+
+      - name: Upload install_homebrew.sh script
+        # This assumes you checked in install_homebrew.sh under input/
+        uses: actions/checkout@v3
+
+      - name: Download Intune App Wrapping Tool for macOS
+        run: |
+          curl -L -o tools/IntuneAppUtil "https://github.com/msintuneappshell/intune-app-wrapping-tool-macos/releases/latest/download/IntuneAppUtil"
+          chmod +x tools/IntuneAppUtil
+
+      - name: Wrap install_homebrew.sh script into .intunemac
+        run: |
+          ./tools/IntuneAppUtil -c input/install_homebrew.sh -o output/install_homebrew.intunemac
+
+      - name: Upload wrapped .intunemac artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: homebrew-installer-intunemac
+          path: output/install_homebrew.intunemac
