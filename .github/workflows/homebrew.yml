@@ -28,7 +28,7 @@ jobs:
 
           # Create a wrapper script (run_homebrew_install.sh) that executes the actual Homebrew install script.
           # The NONINTERACTIVE=1 flag is crucial for silent installation during Intune deployment.
-          # IMPORTANT: The content between 'EOF' and 'EOF' (i.e., the lines of the shell script)
+          # IMPORTANT: The script content between 'EOF' and 'EOF' (i.e., the lines of the shell script)
           # MUST start on a NEW LINE immediately after the opening 'EOF' and
           # MUST be indented to the EXACT SAME COLUMN as the 'cat' command itself.
           cat > input/run_homebrew_install.sh <<'EOF'
@@ -41,7 +41,7 @@ if [ $? -ne 0 ]; then
 fi
 echo "Homebrew installation completed successfully."
 EOF
-          # Make the newly created wrapper script executable.
+          # Ensure the newly created wrapper script is executable.
           chmod +x input/run_homebrew_install.sh
           echo "Wrapper script 'run_homebrew_install.sh' created and made executable."
 
