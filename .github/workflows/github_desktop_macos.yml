@@ -1,0 +1,67 @@
+name: Package GitHub Desktop DMG for Intune
+
+on:
+  workflow_dispatch:
+
+jobs:
+  github-desktop-dmg:
+    runs-on: macos-latest
+    steps:
+      - name: Create directories
+        run: |
+          mkdir -p input output
+      - name: Download latest GitHub Desktop macOS Universal (ZIP)
+        run: |
+          curl -L "https://central.github.com/deployments/desktop/desktop/latest/darwin" -o "input/GitHubDesktop.zip"
+      - name: Unzip GitHub Desktop and set app path
+        run: |
+          unzip -q input/GitHubDesktop.zip -d input/
+          GITHUB_APP_FULL_PATH=$(find input -maxdepth 2 -name "GitHub Desktop.app" -type d | head -n 1)
+          if [ -z "$GITHUB_APP_FULL_PATH" ]; then
+            echo "Error: GitHub Desktop.app not found in the unzipped directory."
+            exit 1
+          fi
+          echo "GITHUB_APP_FULL_PATH=$GITHUB_APP_FULL_PATH" >> $GITHUB_ENV
+      - name: Get GitHub Desktop version
+        run: |
+          VERSION=$(defaults read "$GITHUB_APP_FULL_PATH/Contents/Info.plist" CFBundleShortVersionString || echo "unknown")
+          echo "GHDESKTOP_VERSION=$VERSION" | tee -a $GITHUB_ENV
+          echo "GitHub Desktop version: $VERSION"
+      - name: Create GitHub Desktop DMG from app bundle
+        run: |
+          set -eux
+          TEMP_DMG_PATH="output/GitHubDesktop-temp.dmg"
+          VOL_NAME="GitHub Desktop"
+
+          echo "Creating DMG at $TEMP_DMG_PATH"
+          hdiutil create -size 500m -fs HFS+ -volname "$VOL_NAME" -ov -quiet -o "$TEMP_DMG_PATH"
+
+          echo "Attaching DMG..."
+          MOUNT_OUTPUT=$(hdiutil attach "$TEMP_DMG_PATH" -nobrowse -noverify)
+          echo "hdiutil attach output:"
+          echo "$MOUNT_OUTPUT"
+
+          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | awk '{print $NF}')
+          echo "Mounted DMG at: $MOUNTPOINT"
+
+          if [ -z "$MOUNTPOINT" ]; then
+            echo "Error: Could not find mount point."
+            exit 1
+          fi
+
+          echo "Copying app to DMG..."
+          cp -R "$GITHUB_APP_FULL_PATH" "$MOUNTPOINT/"
+
+          echo "Detaching DMG..."
+          hdiutil detach "$MOUNTPOINT" -quiet
+
+          FINAL_DMG="output/GitHubDesktop-macOS-universal-$GHDESKTOP_VERSION.dmg"
+          echo "Renaming DMG to $FINAL_DMG"
+          mv "$TEMP_DMG_PATH" "$FINAL_DMG"
+
+          echo "Created DMG: $FINAL_DMG"
+      - name: Upload GitHub Desktop DMG as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-desktop-dmg
+          path: output/*.dmg
