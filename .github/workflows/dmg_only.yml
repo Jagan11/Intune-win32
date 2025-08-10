@@ -1,34 +1,41 @@
-name: Package VSCode for Intune (macOS-vscode)
+name: Wrap VSCode DMG for Intune vscode
 
 on:
   workflow_dispatch:
 
 jobs:
-  package-vscode:
+  wrap-vscode-dmg:
     runs-on: macos-latest
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - name: Set up directories
+        run: mkdir -p input output tools
 
-      - name: Setup folders
-        run: mkdir -p input output
-
-      - name: Download and extract VSCode
+      # 1. Download VSCode DMG
+      - name: Download VSCode DMG
         run: |
-          curl -L "https://update.code.visualstudio.com/latest/darwin/stable" -o input/VSCode.zip
-          unzip -q input/VSCode.zip -d input/
+          curl -L "https://update.code.visualstudio.com/latest/darwin/stable" -o input/VSCode.dmg
 
-      - name: Build a signed .pkg installer
+      # 2. Mount DMG and copy .app
+      - name: Mount and copy app
         run: |
-          pkgbuild \
-            --install-location /Applications \
-            --component "input/Visual Studio Code.app" \
-            --sign "Developer ID Installer: Your Name (TEAMID)" \
-            "output/VSCode.pkg"
-          pkgutil --check-signature "output/VSCode.pkg"
+          hdiutil attach input/VSCode.dmg -nobrowse -quiet
+          cp -R "/Volumes/Visual Studio Code/Visual Studio Code.app" input/
+          hdiutil detach "/Volumes/Visual Studio Code" -quiet
 
-      - name: Upload VSCode.pkg
+      # 3. Download Intune App Wrapping Tool
+      - name: Download IntuneAppUtil
+        run: |
+          curl -L "https://github.com/msintuneappshell/intune-app-wrapping-tool-macos/releases/latest/download/IntuneAppUtil" -o tools/IntuneAppUtil
+          chmod +x tools/IntuneAppUtil
+
+      # 4. Wrap the DMG directly
+      - name: Wrap DMG
+        run: |
+          ./tools/IntuneAppUtil -c input/VSCode.dmg -o output/VSCode.intunemac
+
+      # 5. Upload wrapped file
+      - name: Upload .intunemac
         uses: actions/upload-artifact@v4
         with:
-          name: vscode-pkg
-          path: output/VSCode.pkg
+          name: vscode-intunemac
+          path: output/VSCode.intunemac
