@@ -17,12 +17,23 @@ jobs:
           chmod +x scripts/run_homebrew_install.sh
 
       - name: Download Intune App Wrapping Tool for macOS
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Remove directory if exists to avoid clone errors
+          # Clean up any existing directory to avoid clone errors
           if [ -d "tools/intune-app-utility-repo" ]; then rm -rf tools/intune-app-utility-repo; fi
+
+          # Configure git to use token for authentication automatically
+          git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+          # Clone the repo
           git clone https://github.com/microsoft/shell-intune-app-utility.git tools/intune-app-utility-repo
+
+          # Move the IntuneAppUtil executable and make it executable
           mv tools/intune-app-utility-repo/IntuneAppUtil tools/IntuneAppUtil
           chmod +x tools/IntuneAppUtil
+
+          # Clean up
           rm -rf tools/intune-app-utility-repo
 
       - name: Wrap run_homebrew_install.sh script into .intunemac
