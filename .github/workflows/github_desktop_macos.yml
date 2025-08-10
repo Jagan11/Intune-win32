@@ -45,8 +45,8 @@ jobs:
           echo "hdiutil attach output:"
           echo "$MOUNT_OUTPUT"
 
-          # Extract full mount path with /Volumes prefix
-          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep -o '/Volumes/[^ ]*' | head -n 1)
+          # Correctly extract full mount point path including spaces
+          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | awk '{$1=$2=""; print $0}' | sed 's/^ *//;s/ *$//')
           echo "Mounted DMG at: $MOUNTPOINT"
 
           if [ -z "$MOUNTPOINT" ]; then
