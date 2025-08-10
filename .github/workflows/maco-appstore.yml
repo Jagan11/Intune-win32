@@ -1,4 +1,10 @@
-vscode-dmg:
+name: Get macOS App DMGs for Intune
+
+on:
+  workflow_dispatch:
+
+jobs:
+  vscode-dmg:
     runs-on: macos-latest
     steps:
       - name: Create directories
