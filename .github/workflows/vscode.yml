@@ -1,26 +1,26 @@
-name: Package VSCode DMG for Intune vscode
+name: Package VSCode DMG for Intune
 
 on:
   workflow_dispatch:
 
 jobs:
-  package-vscode:
+  vscode-dmg:
     runs-on: macos-latest
     steps:
       - name: Create directories
         run: |
           mkdir -p input output
 
-      - name: Download latest VSCode macOS Universal ZIP
+      - name: Download latest VSCode macOS Universal (ZIP)
         run: |
           curl -L "https://update.code.visualstudio.com/latest/darwin-universal/stable" -o "input/VSCode.zip"
 
-      - name: Unzip VSCode
+      - name: Unzip VSCode and set app path
         run: |
           unzip -q input/VSCode.zip -d input/
           VSCODE_APP_PATH=$(find input -maxdepth 2 -name "Visual Studio Code.app" -type d | head -n 1)
           if [ -z "$VSCODE_APP_PATH" ]; then
-            echo "Error: Visual Studio Code.app not found."
+            echo "Error: Visual Studio Code.app not found after unzipping."
             exit 1
           fi
           echo "VSCODE_APP_PATH=$VSCODE_APP_PATH" >> $GITHUB_ENV
@@ -31,29 +31,42 @@ jobs:
           echo "VSCODE_VERSION=$VERSION" | tee -a $GITHUB_ENV
           echo "VSCode version: $VERSION"
 
-      - name: Create DMG from VSCode app bundle
+      - name: Create VSCode DMG from app bundle
         run: |
           set -eux
           TEMP_DMG="output/VSCode-temp.dmg"
           VOL_NAME="Visual Studio Code"
 
+          echo "Creating DMG at $TEMP_DMG"
           hdiutil create -size 500m -fs HFS+ -volname "$VOL_NAME" -ov -quiet -o "$TEMP_DMG"
+
+          echo "Attaching DMG..."
           MOUNT_OUTPUT=$(hdiutil attach "$TEMP_DMG" -nobrowse -noverify)
-          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | awk '{print $NF}')
+          echo "hdiutil attach output:"
+          echo "$MOUNT_OUTPUT"
+
+          # Extract full mount point path, preserving spaces
+          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | sed -E 's/^.*(\/Volumes\/.*)$/\1/')
+          echo "Mounted DMG at: $MOUNTPOINT"
 
           if [ -z "$MOUNTPOINT" ]; then
             echo "Error: Could not mount DMG."
             exit 1
           fi
 
+          echo "Copying Visual Studio Code.app to DMG..."
           cp -R "$VSCODE_APP_PATH" "$MOUNTPOINT/"
+
+          echo "Detaching DMG..."
           hdiutil detach "$MOUNTPOINT" -quiet
 
           FINAL_DMG="output/VSCode-macOS-universal-$VSCODE_VERSION.dmg"
+          echo "Renaming DMG to $FINAL_DMG"
           mv "$TEMP_DMG" "$FINAL_DMG"
+
           echo "Created DMG: $FINAL_DMG"
 
-      - name: Upload DMG artifact
+      - name: Upload VSCode DMG as artifact
         uses: actions/upload-artifact@v4
         with:
           name: vscode-dmg
