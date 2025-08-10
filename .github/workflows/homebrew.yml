@@ -3,6 +3,9 @@ name: Package Homebrew Installer for Intune
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   package-intunemac:
     runs-on: macos-latest
@@ -38,7 +41,7 @@ jobs:
           chmod +x scripts/run_homebrew_install.sh
           echo "Wrapper script created."
 
-      - name: Checkout Intune Shell Scripts Samples
+      - name: Checkout Intune shell scripts samples
         uses: actions/checkout@v3
         with:
           repository: microsoft/shell-intune-samples
@@ -47,8 +50,12 @@ jobs:
 
       - name: Prepare Intune Utility
         run: |
-          mv tools/intune-app-utility-repo/macOS/Apps/Company\ Portal/installCompanyPortal.sh tools/IntuneAppUtil
+          # Adjust this path and file as needed based on the actual utility/script you want to use
+          # Here we assume an example script exists at the given path
+          cp tools/intune-app-utility-repo/macOS/Apps/Company\ Portal/installCompanyPortal.sh tools/IntuneAppUtil
           chmod +x tools/IntuneAppUtil
+
+          # Optionally remove checkout repo folder if no longer needed
           rm -rf tools/intune-app-utility-repo
 
       - name: Wrap script into .intunemac
