@@ -38,14 +38,13 @@ jobs:
           VOL_NAME="Visual Studio Code"
 
           echo "Creating DMG at $TEMP_DMG"
-          hdiutil create -size 500m -fs HFS+ -volname "$VOL_NAME" -ov -quiet -o "$TEMP_DMG"
+          hdiutil create -size 2000m -fs HFS+ -volname "$VOL_NAME" -ov -quiet -o "$TEMP_DMG"
 
           echo "Attaching DMG..."
           MOUNT_OUTPUT=$(hdiutil attach "$TEMP_DMG" -nobrowse -noverify)
           echo "hdiutil attach output:"
           echo "$MOUNT_OUTPUT"
 
-          # Extract full mount point path, preserving spaces
           MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | sed -E 's/^.*(\/Volumes\/.*)$/\1/')
           echo "Mounted DMG at: $MOUNTPOINT"
 
