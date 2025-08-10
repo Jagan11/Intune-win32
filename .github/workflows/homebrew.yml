@@ -19,12 +19,15 @@ jobs:
           mkdir -p input
           # Ensure install_homebrew.sh is in the input directory
           # This assumes install_homebrew.sh is at the root of your Git repository
-          if [ ! -f "input/install_homebrew.sh" ]; then
-            cp install_homebrew.sh input/install_homebrew.sh
+          if [ ! -f "install_homebrew.sh" ]; then # Check for it at root, not input/ initially
+            echo "Error: install_homebrew.sh not found at repository root. Please ensure it's committed."
+            exit 1
           fi
+          cp install_homebrew.sh input/install_homebrew.sh # Copy from root to input/
+          
           # Create the wrapper script.
-          # IMPORTANT: The 'EOF' markers and the script content must be
-          # indented at the same level as the 'cat' command itself.
+          # The script content and the closing 'EOF' must start at the same column
+          # as the 'cat' command itself.
           cat > input/run_homebrew_install.sh <<'EOF'
 #!/bin/bash
 echo "Starting Homebrew installation via wrapper script..."
