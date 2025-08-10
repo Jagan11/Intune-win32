@@ -1,32 +1,60 @@
-name: Package VSCode as IntuneWin
+name: Package VSCode DMG for Intune vscode
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-intunewin:
-    runs-on: windows-latest
-
+  package-vscode:
+    runs-on: macos-latest
     steps:
       - name: Create directories
         run: |
-          New-Item -Path input -ItemType Directory
-          New-Item -Path output -ItemType Directory
+          mkdir -p input output
 
-      - name: Download VSCode ARM64 Setup
+      - name: Download latest VSCode macOS Universal ZIP
         run: |
-          Invoke-WebRequest -Uri "https://vscode.download.prss.microsoft.com/dbazure/download/stable/488a1f239235055e34e673291fb8d8c810886f81/VSCodeSetup-arm64-1.102.3.exe" -OutFile "input\VSCodeSetup.exe"
+          curl -L "https://update.code.visualstudio.com/latest/darwin-universal/stable" -o "input/VSCode.zip"
 
-      - name: Download Microsoft Win32 Content Prep Tool 
+      - name: Unzip VSCode
         run: |
-          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+          unzip -q input/VSCode.zip -d input/
+          VSCODE_APP_PATH=$(find input -maxdepth 2 -name "Visual Studio Code.app" -type d | head -n 1)
+          if [ -z "$VSCODE_APP_PATH" ]; then
+            echo "Error: Visual Studio Code.app not found."
+            exit 1
+          fi
+          echo "VSCODE_APP_PATH=$VSCODE_APP_PATH" >> $GITHUB_ENV
 
-      - name: Package using IntuneWinAppUtil
+      - name: Get VSCode version
         run: |
-          .\IntuneWinAppUtil.exe -c ".\input" -s "VSCodeSetup.exe" -o ".\output" -q
+          VERSION=$(defaults read "$VSCODE_APP_PATH/Contents/Info.plist" CFBundleShortVersionString || echo "unknown")
+          echo "VSCODE_VERSION=$VERSION" | tee -a $GITHUB_ENV
+          echo "VSCode version: $VERSION"
 
-      - name: Upload .intunewin package as artifact
+      - name: Create DMG from VSCode app bundle
+        run: |
+          set -eux
+          TEMP_DMG="output/VSCode-temp.dmg"
+          VOL_NAME="Visual Studio Code"
+
+          hdiutil create -size 500m -fs HFS+ -volname "$VOL_NAME" -ov -quiet -o "$TEMP_DMG"
+          MOUNT_OUTPUT=$(hdiutil attach "$TEMP_DMG" -nobrowse -noverify)
+          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | awk '{print $NF}')
+
+          if [ -z "$MOUNTPOINT" ]; then
+            echo "Error: Could not mount DMG."
+            exit 1
+          fi
+
+          cp -R "$VSCODE_APP_PATH" "$MOUNTPOINT/"
+          hdiutil detach "$MOUNTPOINT" -quiet
+
+          FINAL_DMG="output/VSCode-macOS-universal-$VSCODE_VERSION.dmg"
+          mv "$TEMP_DMG" "$FINAL_DMG"
+          echo "Created DMG: $FINAL_DMG"
+
+      - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vscode-intunewin
-          path: output/*.intunewin
+          name: vscode-dmg
+          path: output/*.dmg
