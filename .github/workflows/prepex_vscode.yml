@@ -1,0 +1,106 @@
+name: Build VSCode macOS DMG and PKG
+
+on:
+  workflow_dispatch:
+
+jobs:
+  package-vscode:
+    runs-on: macos-latest
+    env:
+      VOL_NAME: "Visual Studio Code"
+
+    steps:
+      - name: Prepare directories
+        run: |
+          mkdir -p scripts input output
+
+      - name: Download latest VSCode macOS Universal ZIP
+        run: |
+          curl -L "https://update.code.visualstudio.com/latest/darwin-universal/stable" -o input/VSCode.zip
+
+      - name: Unzip VSCode and set app path
+        run: |
+          unzip -q input/VSCode.zip -d scripts/
+          VSCODE_APP_FULL_PATH=$(find scripts -maxdepth 1 -name "Visual Studio Code.app" -type d | head -n 1)
+          if [ -z "$VSCODE_APP_FULL_PATH" ]; then
+            echo "Error: Visual Studio Code.app not found after unzipping."
+            exit 1
+          fi
+          echo "VSCODE_APP_FULL_PATH=$VSCODE_APP_FULL_PATH" >> $GITHUB_ENV
+
+      - name: Get VSCode version
+        run: |
+          VERSION=$(defaults read "$VSCODE_APP_FULL_PATH/Contents/Info.plist" CFBundleShortVersionString || echo "unknown")
+          echo "VSCODE_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "VSCode version: $VERSION"
+
+      - name: Create VSCode DMG from app bundle
+        run: |
+          set -eux
+          TEMP_DMG_PATH="output/VSCode-temp.dmg"
+
+          echo "Creating DMG at $TEMP_DMG_PATH"
+          # Size set to 700m, adjust if needed
+          hdiutil create -size 700m -fs HFS+ -volname "$VOL_NAME" -ov -quiet -o "$TEMP_DMG_PATH"
+
+          echo "Attaching DMG..."
+          MOUNT_OUTPUT=$(hdiutil attach "$TEMP_DMG_PATH" -nobrowse -noverify)
+          echo "Mount output: $MOUNT_OUTPUT"
+
+          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | sed -E 's/.*(\/Volumes\/.*)/\1/')
+          echo "Mounted DMG at: $MOUNTPOINT"
+          if [ -z "$MOUNTPOINT" ]; then
+            echo "Error: Could not find mount point."
+            exit 1
+          fi
+
+          echo "Copying app to DMG..."
+          cp -R "$VSCODE_APP_FULL_PATH" "$MOUNTPOINT/"
+
+          echo "Detaching DMG..."
+          hdiutil detach "$MOUNTPOINT" -quiet
+
+          FINAL_DMG="output/VSCode-macOS-universal-$VSCODE_VERSION.dmg"
+          echo "Renaming DMG to $FINAL_DMG"
+          mv "$TEMP_DMG_PATH" "$FINAL_DMG"
+
+          echo "Created DMG: $FINAL_DMG"
+
+      - name: Mount the created DMG
+        run: |
+          MOUNT_OUTPUT=$(hdiutil attach output/VSCode-macOS-universal-$VSCODE_VERSION.dmg -nobrowse -noverify)
+          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | sed -E 's/.*(\/Volumes\/.*)/\1/')
+          echo "MOUNTPOINT=$MOUNTPOINT" >> $GITHUB_ENV
+          if [ -z "$MOUNTPOINT" ]; then
+            echo "Error: Could not mount the DMG"
+            exit 1
+          fi
+
+      - name: Create unsigned PKG installer from mounted DMG
+        run: |
+          set -eux
+          PKG_ROOT="${MOUNTPOINT}"
+          PKG_IDENTIFIER="com.microsoft.vscode"
+          PKG_VERSION="${{ env.VSCODE_VERSION }}"
+          PKG_OUTPUT="output/VSCode-macOS-universal-${PKG_VERSION}-unsigned.pkg"
+
+          echo "Building PKG from $PKG_ROOT"
+          pkgbuild --root "$PKG_ROOT" \
+                   --install-location /Applications \
+                   --identifier "$PKG_IDENTIFIER" \
+                   --version "$PKG_VERSION" \
+                   "$PKG_OUTPUT"
+
+          echo "Created unsigned PKG: $PKG_OUTPUT"
+
+      - name: Detach mounted DMG
+        run: |
+          hdiutil detach "$MOUNTPOINT" -quiet
+
+      - name: Upload DMG and PKG artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-macos-packages
+          path: |
+            output/VSCode-macOS-universal-*.dmg
+            output/VSCode-macOS-universal-*-unsigned.pkg
