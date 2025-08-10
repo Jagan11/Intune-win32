@@ -18,25 +18,35 @@ jobs:
           # Fetch Node.js version information from nodejs.org API
           NODE_INDEX=$(curl -s "https://nodejs.org/dist/index.json")
           
-          # Find the latest LTS release that has a 'version' and 'files' for 'osx-x64' PKG
-          LTS_DATA=$(echo "$NODE_INDEX" | jq '.[] | select(.lts != false and .lts != null) | select(.files | contains(["osx-x64", "headers", "npm"])) | .version' | head -n 1 | tr -d 'v')
+          echo "--- DEBUG: Raw Node.js index.json (first 20 lines) ---"
+          echo "$NODE_INDEX" | head -n 20 # Print first 20 lines for debugging
+          echo "--- END DEBUG ---"
+
+          # Find the latest LTS version (where .lts is truthy, either true or a string codename)
+          # We sort versions numerically (-V) and take the last one to ensure we get the latest LTS.
+          LTS_VERSION_FULL=$(echo "$NODE_INDEX" | jq -r '.[] | select(.lts) | .version' | sort -V | tail -n 1)
           
-          if [ -z "$LTS_DATA" ]; then
-            echo "Error: Could not determine latest LTS Node.js version with 'osx-x64' PKG."
+          if [ -z "$LTS_VERSION_FULL" ]; then
+            echo "Error: Could not determine latest LTS Node.js version from index.json."
+            # If the above fails, it means the `index.json` might not contain expected LTS data
+            # You could try a fallback for the latest general version if LTS is not found:
+            # LTS_VERSION_FULL=$(echo "$NODE_INDEX" | jq -r '.[0].version')
             exit 1
           fi
 
-          LTS_VERSION="v$LTS_DATA"
+          # Remove the 'v' prefix from the version for URL construction (if present, harmless otherwise)
+          LTS_VERSION_CLEAN=${LTS_VERSION_FULL//v/}
           
           # Construct download URL for the macOS PKG installer (x64 for broader compatibility)
-          INSTALLER_FILENAME="node-$LTS_VERSION-darwin-x64.pkg"
-          DOWNLOAD_URL="https://nodejs.org/dist/$LTS_VERSION/$INSTALLER_FILENAME"
+          # This assumes the standard naming convention for macOS PKG installers from Node.js
+          INSTALLER_FILENAME="node-${LTS_VERSION_FULL}-darwin-x64.pkg"
+          DOWNLOAD_URL="https://nodejs.org/dist/${LTS_VERSION_FULL}/${INSTALLER_FILENAME}"
           
-          echo "NODEJS_VERSION=$LTS_VERSION" >> $GITHUB_ENV
+          echo "NODEJS_VERSION=$LTS_VERSION_FULL" >> $GITHUB_ENV
           echo "NODEJS_DOWNLOAD_URL=$DOWNLOAD_URL" >> $GITHUB_ENV
           echo "NODEJS_INSTALLER_FILENAME=$INSTALLER_FILENAME" >> $GITHUB_ENV
 
-          echo "Found Node.js LTS version: $LTS_VERSION"
+          echo "Found Node.js LTS version: $LTS_VERSION_FULL"
           echo "Download URL: $DOWNLOAD_URL"
           echo "Installer filename: $INSTALLER_FILENAME"
 
@@ -47,8 +57,9 @@ jobs:
           echo "Downloaded Node.js PKG: output/$NODEJS_INSTALLER_FILENAME"
 
           # Add a size check to ensure the downloaded file is not too small (e.g., less than 10 MB)
-          FILE_SIZE_BYTES=$(stat -f %z "output/$NODEJS_INSTALLER_FILENAME")
-          MIN_EXPECTED_SIZE_BYTES=10000000 # 10 MB in bytes
+          # Use find with -printf %s for cross-platform size check in bytes
+          FILE_SIZE_BYTES=$(find "output/$NODEJS_INSTALLER_FILENAME" -printf "%s" | head -n 1)
+          MIN_EXPECTED_SIZE_BYTES=10000000 # 10 MB in bytes (adjust if needed)
 
           if [ "$FILE_SIZE_BYTES" -lt "$MIN_EXPECTED_SIZE_BYTES" ]; then
             echo "Error: Downloaded PKG file is too small ($FILE_SIZE_BYTES bytes). Expected at least $MIN_EXPECTED_SIZE_BYTES bytes. Download likely failed."
