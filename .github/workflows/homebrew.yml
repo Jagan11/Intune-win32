@@ -1,16 +1,14 @@
 name: Package Homebrew Installer for Intune
 
 on:
-  workflow_dispatch: # manual trigger
+  workflow_dispatch:
 
 jobs:
   package-intunemac:
     runs-on: macos-latest
-
     steps:
       - name: Prepare folders
-        run: |
-          mkdir -p input output tools
+        run: mkdir -p input output tools
 
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -23,21 +21,20 @@ jobs:
           fi
 
       - name: Copy install_homebrew.sh to input/
-        run: |
-          cp install_homebrew.sh input/install_homebrew.sh
+        run: cp install_homebrew.sh input/install_homebrew.sh
 
       - name: Create wrapper install script
         run: |
           cat <<'EOF' > input/run_homebrew_install.sh
-#!/bin/bash
-echo "Starting Homebrew installation via wrapper script..."
-NONINTERACTIVE=1 /bin/bash "$(dirname "$0")/install_homebrew.sh"
-if [ $? -ne 0 ]; then
-  echo "Homebrew installation failed."
-  exit 1
-fi
-echo "Homebrew installation completed successfully."
-EOF
+          #!/bin/bash
+          echo "Starting Homebrew installation via wrapper script..."
+          NONINTERACTIVE=1 /bin/bash "$(dirname "$0")/install_homebrew.sh"
+          if [ $? -ne 0 ]; then
+            echo "Homebrew installation failed."
+            exit 1
+          fi
+          echo "Homebrew installation completed successfully."
+          EOF
           chmod +x input/run_homebrew_install.sh
           echo "Wrapper script created."
 
@@ -49,9 +46,7 @@ EOF
           rm -rf tools/intune-app-utility-repo
 
       - name: Wrap script into .intunemac
-        run: |
-          ./tools/IntuneAppUtil -c input/run_homebrew_install.sh -o output/HomebrewInstaller.intunemac
-          echo "HomebrewInstaller.intunemac created successfully."
+        run: ./tools/IntuneAppUtil -c input/run_homebrew_install.sh -o output/HomebrewInstaller.intunemac
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
