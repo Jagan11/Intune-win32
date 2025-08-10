@@ -1,41 +1,35 @@
-name: Wrap VSCode DMG for Intune vscode
+name: Package VSCode DMG for Intune
 
 on:
   workflow_dispatch:
 
 jobs:
-  wrap-vscode-dmg:
+  package-vscode-dmg:
     runs-on: macos-latest
     steps:
-      - name: Set up directories
+      # 1. Create directories
+      - name: Setup directories
         run: mkdir -p input output tools
 
-      # 1. Download VSCode DMG
+      # 2. Download VSCode DMG
       - name: Download VSCode DMG
         run: |
-          curl -L "https://update.code.visualstudio.com/latest/darwin/stable" -o input/VSCode.dmg
-
-      # 2. Mount DMG and copy .app
-      - name: Mount and copy app
-        run: |
-          hdiutil attach input/VSCode.dmg -nobrowse -quiet
-          cp -R "/Volumes/Visual Studio Code/Visual Studio Code.app" input/
-          hdiutil detach "/Volumes/Visual Studio Code" -quiet
+          curl -L "https://update.code.visualstudio.com/latest/darwin/stable" -o "input/VSCode.dmg"
 
       # 3. Download Intune App Wrapping Tool
-      - name: Download IntuneAppUtil
+      - name: Download Intune App Wrapping Tool
         run: |
           curl -L "https://github.com/msintuneappshell/intune-app-wrapping-tool-macos/releases/latest/download/IntuneAppUtil" -o tools/IntuneAppUtil
           chmod +x tools/IntuneAppUtil
 
-      # 4. Wrap the DMG directly
-      - name: Wrap DMG
+      # 4. Wrap VSCode DMG into Intune format
+      - name: Wrap VSCode DMG
         run: |
           ./tools/IntuneAppUtil -c input/VSCode.dmg -o output/VSCode.intunemac
 
-      # 5. Upload wrapped file
-      - name: Upload .intunemac
+      # 5. Upload wrapped package as artifact
+      - name: Upload Intune package
         uses: actions/upload-artifact@v4
         with:
-          name: vscode-intunemac
+          name: VSCode-intunemac
           path: output/VSCode.intunemac
