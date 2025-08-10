@@ -10,32 +10,52 @@ jobs:
       - name: Create directories
         run: |
           mkdir -p input output
+
       - name: Download latest VSCode macOS Universal (ZIP)
         run: |
           curl -L "https://update.code.visualstudio.com/latest/darwin-universal/stable" -o "input/VSCode.zip"
+
       - name: Unzip VSCode and set app path
         run: |
           unzip -q input/VSCode.zip -d input/
-          VSCODE_APP_FULL_PATH=$(find input -maxdepth 2 -name "Visual Studio Code.app" -type d | head -n 1)
+          echo "Contents of input after unzip:"
+          ls -lR input/
+          VSCODE_APP_FULL_PATH=$(find input -type d -name "Visual Studio Code.app" | head -n 1)
           if [ -z "$VSCODE_APP_FULL_PATH" ]; then
             echo "Error: Visual Studio Code.app not found after unzipping."
             exit 1
           fi
+          echo "Found VSCode app at: $VSCODE_APP_FULL_PATH"
           echo "VSCODE_APP_FULL_PATH=$VSCODE_APP_FULL_PATH" >> $GITHUB_ENV
+
       - name: Get VSCode version
         run: |
-          VERSION=$(defaults read "$VSCODE_APP_FULL_PATH/Contents/Info.plist" CFBundleShortVersionString)
+          plist="$VSCODE_APP_FULL_PATH/Contents/Info.plist"
+          if [ ! -f "$plist" ]; then
+            echo "Error: Info.plist not found at $plist"
+            exit 1
+          fi
+          VERSION=$(plutil -extract CFBundleShortVersionString xml1 -o - "$plist" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
           echo "VSCODE_VERSION=$VERSION" | tee -a $GITHUB_ENV
           echo "VSCode version: $VERSION"
+
       - name: Create VSCode DMG from app bundle
         run: |
           TEMP_DMG_PATH="output/VSCode-temp.dmg"
-          hdiutil create -size 500m -fs HFS+ -volname "Visual Studio Code" -o "$TEMP_DMG_PATH"
-          hdiutil attach "$TEMP_DMG_PATH" -nobrowse -quiet
-          cp -r "$VSCODE_APP_FULL_PATH" "/Volumes/Visual Studio Code/"
-          hdiutil detach "/Volumes/Visual Studio Code" -quiet
+          VOL_NAME="Visual Studio Code"
+          # Create empty DMG
+          hdiutil create -size 500m -fs HFS+ -volname "$VOL_NAME" -o "$TEMP_DMG_PATH"
+          # Attach DMG and get mount point
+          MOUNTPOINT=$(hdiutil attach "$TEMP_DMG_PATH" -nobrowse -quiet | grep "/Volumes" | awk '{print $3}')
+          echo "Mounted DMG at $MOUNTPOINT"
+          # Copy app bundle into DMG
+          cp -R "$VSCODE_APP_FULL_PATH" "$MOUNTPOINT/"
+          # Detach DMG
+          hdiutil detach "$MOUNTPOINT" -quiet
+          # Rename temp dmg to include version
           mv "$TEMP_DMG_PATH" "output/VSCode-macOS-universal-$VSCODE_VERSION.dmg"
           echo "Created DMG: output/VSCode-macOS-universal-$VSCODE_VERSION.dmg"
+
       - name: Upload VSCode DMG as artifact
         uses: actions/upload-artifact@v4
         with:
