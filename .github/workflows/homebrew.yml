@@ -1,41 +1,76 @@
 name: Package Homebrew Installer for Intune
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Allows manual triggering of the workflow from GitHub UI
 
 jobs:
   package-intunemac:
-    runs-on: macos-latest
+    runs-on: macos-latest # Requires a macOS runner to use native Apple tools
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
-
-      - name: Prepare scripts executables
+      - name: Prepare folders
         run: |
-          chmod +x scripts/install_homebrew.sh
-          chmod +x scripts/run_homebrew_install.sh
+          mkdir -p input output tools # Create directories for organization
 
-      - name: Setup tools folder
-        run: mkdir -p tools output
+      - name: Checkout repository
+        uses: actions/checkout@v3 # Clones your repository into the runner's workspace
 
-      - name: Download Intune App Wrapping Tool
+      - name: Prepare install scripts
         run: |
-          # Clean up if exists
-          if [ -d "tools/intune-app-utility-repo" ]; then rm -rf tools/intune-app-utility-repo; fi
+          # Ensure install_homebrew.sh is present in the input directory.
+          # This assumes 'install_homebrew.sh' is committed at the root of your Git repository.
+          if [ ! -f "install_homebrew.sh" ]; then
+            echo "Error: install_homebrew.sh not found at repository root. Please ensure it's committed."
+            exit 1
+          fi
+          cp install_homebrew.sh input/install_homebrew.sh # Copy the script into the 'input' folder
+
+          # Create a wrapper script (run_homebrew_install.sh) that executes the actual Homebrew install script.
+          # The NONINTERACTIVE=1 flag is crucial for silent installation during Intune deployment.
+          # The content within the 'EOF' markers (including the final 'EOF') must align with the 'cat' command.
+          cat > input/run_homebrew_install.sh <<'EOF'
+#!/bin/bash
+echo "Starting Homebrew installation via wrapper script..."
+# Execute the official Homebrew install script, ensuring it runs non-interactively
+NONINTERACTIVE=1 /bin/bash "$(dirname "$0")/install_homebrew.sh"
+if [ $? -ne 0 ]; then
+  echo "Homebrew installation failed."
+  exit 1
+fi
+echo "Homebrew installation completed successfully."
+EOF
+          # Make the wrapper script executable
+          chmod +x input/run_homebrew_install.sh
+          echo "Wrapper script 'run_homebrew_install.sh' created and made executable."
+
+      - name: Download Intune App Wrapping Tool for macOS
+        run: |
+          echo "Cloning Intune App Utility repository for reliable download..."
+          # Use 'git clone' to reliably get the tool, avoiding common curl download issues
           git clone https://github.com/microsoft/shell-intune-app-utility.git tools/intune-app-utility-repo
+
+          echo "Moving IntuneAppUtil executable to tools/..."
+          # The executable is typically found directly inside the cloned repository folder
           mv tools/intune-app-utility-repo/IntuneAppUtil tools/IntuneAppUtil
+
+          # Make the tool executable
           chmod +x tools/IntuneAppUtil
+          echo "IntuneAppUtil downloaded and made executable."
+
+          echo "Cleaning up temporary git repository..."
+          # Remove the temporary cloned repository folder
           rm -rf tools/intune-app-utility-repo
 
-      - name: Wrap installer into .intunemac
+      - name: Wrap script into .intunemac
         run: |
-          ./tools/IntuneAppUtil -c scripts/run_homebrew_install.sh -o output/HomebrewInstaller.intunemac
-          echo "Created HomebrewInstaller.intunemac"
+          echo "Wrapping input/run_homebrew_install.sh into output/HomebrewInstaller.intunemac..."
+          # Use the IntuneAppUtil tool to wrap the wrapper script
+          ./tools/IntuneAppUtil -c input/run_homebrew_install.sh -o output/HomebrewInstaller.intunemac
+          echo "HomebrewInstaller.intunemac created successfully."
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4 # Action to upload the generated file as a workflow artifact
         with:
-          name: homebrew-installer-intunemac
-          path: output/HomebrewInstaller.intunemac
-          retention-days: 7
+          name: homebrew-installer-intunemac # Name of the artifact
+          path: output/HomebrewInstaller.intunemac # Path to the generated .intunemac file
+          retention-days: 7 # Optional: How long to keep the artifact (e.g., 7 days)
