@@ -1,4 +1,4 @@
-name: Package macOS VSCode as IntuneMac
+name: Package VSCode macOS app
 
 on:
   workflow_dispatch:
@@ -9,34 +9,47 @@ jobs:
     steps:
       - name: Setup directories
         run: |
-          mkdir -p input output tools
+          mkdir -p input output
 
       - name: Download VSCode DMG
         run: |
           curl -L "https://update.code.visualstudio.com/latest/darwin/stable" -o input/VSCode.dmg
 
-      - name: Mount VSCode DMG and copy .app
+      - name: Mount VSCode DMG and copy .app bundle
         run: |
-          MOUNTPOINT=$(hdiutil attach input/VSCode.dmg -nobrowse -quiet | grep "/Volumes" | awk '{print $3}')
+          set -eux
+          MOUNTINFO=$(hdiutil attach input/VSCode.dmg -nobrowse -quiet)
+          echo "Mount info:"
+          echo "$MOUNTINFO"
+          MOUNTPOINT=$(echo "$MOUNTINFO" | grep "/Volumes" | awk '{print $3}')
           echo "Mounted at: $MOUNTPOINT"
+
+          if [ -z "$MOUNTPOINT" ]; then
+            echo "Error: Could not find mount point for the DMG."
+            exit 1
+          fi
+
           cp -R "$MOUNTPOINT/Visual Studio Code.app" input/
           hdiutil detach "$MOUNTPOINT" -quiet
 
-      - name: Create VSCode pkg installer
+      - name: Build pkg installer for VSCode
         run: |
-          pkgbuild --install-location /Applications --component "input/Visual Studio Code.app" input/VSCode.pkg
+          pkgbuild --install-location /Applications --component "input/Visual Studio Code.app" "input/VSCode.pkg"
 
-      - name: Download Intune App Wrapping Tool
-        run: |
-          curl -L -o tools/IntuneAppUtil "https://github.com/msintuneappshell/intune-app-wrapping-tool-macos/releases/latest/download/IntuneAppUtil"
-          chmod +x tools/IntuneAppUtil
+      # Optional: wrap pkg for Intune (if you have IntuneAppUtil ready)
+      # - name: Download Intune App Wrapping Tool
+      #   run: |
+      #     curl -L "https://github.com/msintuneappshell/intune-app-wrapping-tool-macos/releases/latest/download/IntuneAppUtil" -o tools/IntuneAppUtil
+      #     chmod +x tools/IntuneAppUtil
+      #
+      # - name: Wrap VSCode.pkg as Intune package
+      #   run: |
+      #     ./tools/IntuneAppUtil -c input/VSCode.pkg -o output/VSCode.intunemac
 
-      - name: Wrap VSCode pkg to intunemac
-        run: |
-          ./tools/IntuneAppUtil -c input/VSCode.pkg -o output/VSCode.intunemac
-
-      - name: Upload VSCode intunemac artifact
+      - name: Upload DMG and PKG as artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: vscode-intunemac
-          path: output/VSCode.intunemac
+          name: vscode-packages
+          path: |
+            input/VSCode.dmg
+            input/VSCode.pkg
