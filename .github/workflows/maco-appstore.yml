@@ -1,4 +1,4 @@
-name: Get macOS VSCode DMG for Intune
+name: Get macOS App DMGs for Intune vscode
 
 on:
   workflow_dispatch:
@@ -15,43 +15,55 @@ jobs:
         run: |
           curl -L "https://update.code.visualstudio.com/latest/darwin-universal/stable" -o "input/VSCode.zip"
 
-      - name: Unzip VSCode and debug path
+      - name: Unzip VSCode and set app path
         run: |
           unzip -q input/VSCode.zip -d input/
-          echo "Apps found:"
-          find input -type d -name "*.app"
-          echo "Info.plist files found:"
-          find input -name Info.plist
-          VSCODE_APP_FULL_PATH=$(find input -maxdepth 3 -name "Visual Studio Code.app" -type d | head -n 1)
+          VSCODE_APP_FULL_PATH=$(find input -maxdepth 2 -name "Visual Studio Code.app" -type d | head -n 1)
           if [ -z "$VSCODE_APP_FULL_PATH" ]; then
             echo "Error: Visual Studio Code.app not found after unzipping."
             exit 1
           fi
           echo "VSCODE_APP_FULL_PATH=$VSCODE_APP_FULL_PATH" >> $GITHUB_ENV
-          echo "Printing Info.plist content:"
-          defaults read "$VSCODE_APP_FULL_PATH/Contents/Info.plist" || echo "Info.plist not readable"
 
       - name: Get VSCode version
         run: |
           VERSION=$(defaults read "$VSCODE_APP_FULL_PATH/Contents/Info.plist" CFBundleShortVersionString || echo "unknown")
-          echo "VSCODE_VERSION=$VERSION" | tee -a $GITHUB_ENV
+          echo "VSCODE_VERSION=$VERSION" >> $GITHUB_ENV
           echo "VSCode version: $VERSION"
 
       - name: Create VSCode DMG from app bundle
         run: |
+          set -eux
           TEMP_DMG_PATH="output/VSCode-temp.dmg"
           VOL_NAME="Visual Studio Code"
-          hdiutil create -size 500m -fs HFS+ -volname "$VOL_NAME" -o "$TEMP_DMG_PATH"
-          MOUNTPOINT=$(hdiutil attach "$TEMP_DMG_PATH" -nobrowse -quiet | grep "/Volumes" | awk '{print $3}')
-          echo "Mounted DMG at $MOUNTPOINT"
+
+          echo "Creating DMG at $TEMP_DMG_PATH"
+          hdiutil create -size 500m -fs HFS+ -volname "$VOL_NAME" -ov -quiet -o "$TEMP_DMG_PATH"
+
+          echo "Attaching DMG..."
+          MOUNT_OUTPUT=$(hdiutil attach "$TEMP_DMG_PATH" -nobrowse -noverify)
+          echo "hdiutil attach output:"
+          echo "$MOUNT_OUTPUT"
+
+          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep -o '/Volumes/[^ ]*' | head -n 1)
+          echo "Mounted DMG at: $MOUNTPOINT"
+
           if [ -z "$MOUNTPOINT" ]; then
-            echo "Error: Could not mount DMG."
+            echo "Error: Could not find mount point."
             exit 1
           fi
+
+          echo "Copying app to DMG..."
           cp -R "$VSCODE_APP_FULL_PATH" "$MOUNTPOINT/"
+
+          echo "Detaching DMG..."
           hdiutil detach "$MOUNTPOINT" -quiet
-          mv "$TEMP_DMG_PATH" "output/VSCode-macOS-universal-$VSCODE_VERSION.dmg"
-          echo "Created DMG: output/VSCode-macOS-universal-$VSCODE_VERSION.dmg"
+
+          FINAL_DMG="output/VSCode-macOS-universal-$VSCODE_VERSION.dmg"
+          echo "Renaming DMG to $FINAL_DMG"
+          mv "$TEMP_DMG_PATH" "$FINAL_DMG"
+
+          echo "Created DMG: $FINAL_DMG"
 
       - name: Upload VSCode DMG as artifact
         uses: actions/upload-artifact@v4
