@@ -42,7 +42,6 @@ jobs:
   #         name: vscode-dmg
   #         path: output/*.dmg
 
----
 
   github-desktop-dmg:
     runs-on: macos-latest
