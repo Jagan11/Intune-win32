@@ -1,0 +1,161 @@
+name: Get macOS App DMGs for Intune
+
+on:
+  workflow_dispatch: # Allows manual triggering of the workflow
+
+jobs:
+  vscode-dmg:
+    runs-on: macos-latest
+    steps:
+      - name: Create directories
+        run: |
+          mkdir -p input output
+      - name: Download latest VSCode macOS Universal (ZIP)
+        run: |
+          curl -L "https://update.code.visualstudio.com/latest/darwin-universal/stable" -o "input/VSCode.zip"
+      - name: Unzip VSCode and move app bundle
+        run: |
+          mkdir -p input/temp_unzip
+          unzip -q input/VSCode.zip -d input/temp_unzip/
+          VSCODE_APP_FOUND_PATH=$(find input/temp_unzip -maxdepth 2 -name "Visual Studio Code.app" -type d | head -n 1)
+          if [ -z "$VSCODE_APP_FOUND_PATH" ]; then
+            echo "Error: Visual Studio Code.app not found in the unzipped directory."
+            exit 1
+          fi
+          mv "$VSCODE_APP_FOUND_PATH" "input/"
+          rm -rf input/temp_unzip
+          echo "VSCODE_APP_PATH=input/Visual Studio Code.app" | tee -a $GITHUB_ENV
+      - name: Get VSCode version
+        run: |
+          VERSION=$(defaults read "input/Visual Studio Code.app/Contents/Info.plist" CFBundleShortVersionString)
+          echo "VSCODE_VERSION=$VERSION" | tee -a $GITHUB_ENV
+          echo "VSCode version: $VERSION"
+      - name: Create VSCode DMG from app bundle
+        run: |
+          TEMP_DMG_PATH="output/VSCode-temp.dmg"
+          hdiutil create -size 500m -fs HFS+ -volname "Visual Studio Code" -o "$TEMP_DMG_PATH"
+          hdiutil attach "$TEMP_DMG_PATH" -nobrowse -quiet
+          cp -r "input/Visual Studio Code.app" "/Volumes/Visual Studio Code/"
+          hdiutil detach "/Volumes/Visual Studio Code" -quiet
+          mv "$TEMP_DMG_PATH" "output/VSCode-macOS-universal-$VSCODE_VERSION.dmg"
+          echo "Created DMG: output/VSCode-macOS-universal-$VSCODE_VERSION.dmg"
+      - name: Upload VSCode DMG as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-dmg
+          path: output/*.dmg
+
+---
+
+  github-desktop-dmg:
+    runs-on: macos-latest
+    steps:
+      - name: Create directories
+        run: |
+          mkdir -p input output
+      - name: Download latest GitHub Desktop macOS Universal (ZIP)
+        run: |
+          curl -L "https://central.github.com/deployments/desktop/desktop/latest/darwin" -o "input/GitHubDesktop.zip"
+      - name: Unzip GitHub Desktop and find app bundle
+        run: |
+          unzip -q input/GitHubDesktop.zip -d input/
+          GITHUB_APP_PATH=$(find input -maxdepth 2 -name "GitHub Desktop.app" -type d | head -n 1)
+          if [ -z "$GITHUB_APP_PATH" ]; then
+            echo "Error: GitHub Desktop.app not found in the unzipped directory."
+            exit 1
+          fi
+          echo "GITHUB_APP_PATH=$GITHUB_APP_PATH" | tee -a $GITHUB_ENV
+      - name: Get GitHub Desktop version
+        run: |
+          VERSION=$(defaults read "$GITHUB_APP_PATH/Contents/Info.plist" CFBundleShortVersionString)
+          echo "GHDESKTOP_VERSION=$VERSION" | tee -a $GITHUB_ENV
+          echo "GitHub Desktop version: $VERSION"
+      - name: Create GitHub Desktop DMG from app bundle
+        run: |
+          TEMP_DMG_PATH="output/GitHubDesktop-temp.dmg"
+          hdiutil create -size 500m -fs HFS+ -volname "GitHub Desktop" -o "$TEMP_DMG_PATH"
+          hdiutil attach "$TEMP_DMG_PATH" -nobrowse -quiet
+          cp -r "$GITHUB_APP_PATH" "/Volumes/GitHub Desktop/"
+          hdiutil detach "/Volumes/GitHub Desktop" -quiet
+          mv "$TEMP_DMG_PATH" "output/GitHubDesktop-macOS-universal-$GHDESKTOP_VERSION.dmg"
+          echo "Created DMG: output/GitHubDesktop-macOS-universal-$GHDESKTOP_VERSION.dmg"
+      - name: Upload GitHub Desktop DMG as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-desktop-dmg
+          path: output/*.dmg
+
+---
+
+  chrome-dmg:
+    runs-on: macos-latest
+    steps:
+      - name: Create directories
+        run: |
+          mkdir -p input output
+      - name: Download latest Google Chrome macOS Universal (DMG)
+        run: |
+          curl -L "https://dl.google.com/chrome/mac/stable/GGRO/googlechrome.dmg" -o "output/GoogleChrome-macOS-universal.dmg"
+      - name: Get Chrome version
+        run: |
+          hdiutil attach "output/GoogleChrome-macOS-universal.dmg" -nobrowse -quiet
+          VERSION=$(defaults read "/Volumes/Google Chrome/Google Chrome.app/Contents/Info.plist" CFBundleShortVersionString)
+          hdiutil detach "/Volumes/Google Chrome" -quiet
+          echo "CHROME_VERSION=$VERSION" | tee -a $GITHUB_ENV
+          echo "Chrome version: $VERSION"
+      - name: Rename Chrome DMG with version
+        run: |
+          mv "output/GoogleChrome-macOS-universal.dmg" "output/GoogleChrome-macOS-universal-$CHROME_VERSION.dmg"
+          echo "Renamed DMG: output/GoogleChrome-macOS-universal-$CHROME_VERSION.dmg"
+      - name: Upload Chrome DMG as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-dmg
+          path: output/*.dmg
+
+---
+
+  edge-dmg:
+    runs-on: macos-latest
+    steps:
+      - name: Create directories
+        run: |
+          mkdir -p input output tmp
+      - name: Download Microsoft Edge macOS Universal (PKG)
+        run: |
+          curl -L "https://go.microsoft.com/fwlink/?linkid=2069148" -o "input/MicrosoftEdge.pkg"
+      - name: Extract Microsoft Edge.app from PKG
+        run: |
+          pkgutil --expand "input/MicrosoftEdge.pkg" tmp/expanded_pkg
+          
+          cd tmp/expanded_pkg
+          if [ -f "Payload" ]; then
+            tar -xf Payload -C ../
+            mv ../Applications/Microsoft\ Edge.app ../../input/
+          else
+            mv Applications/Microsoft\ Edge.app ../../input/
+          fi
+          
+          cd ../../
+          rm -rf tmp/
+          
+          echo "EDGE_APP_PATH=input/Microsoft Edge.app" | tee -a $GITHUB_ENV
+      - name: Get Edge version
+        run: |
+          VERSION=$(defaults read "input/Microsoft Edge.app/Contents/Info.plist" CFBundleShortVersionString)
+          echo "EDGE_VERSION=$VERSION" | tee -a $GITHUB_ENV
+          echo "Microsoft Edge version: $VERSION"
+      - name: Create Microsoft Edge DMG from app bundle
+        run: |
+          TEMP_DMG_PATH="output/MicrosoftEdge-temp.dmg"
+          hdiutil create -size 500m -fs HFS+ -volname "Microsoft Edge" -o "$TEMP_DMG_PATH"
+          hdiutil attach "$TEMP_DMG_PATH" -nobrowse -quiet
+          cp -r "input/Microsoft Edge.app" "/Volumes/Microsoft Edge/"
+          hdiutil detach "/Volumes/Microsoft Edge" -quiet
+          mv "$TEMP_DMG_PATH" "output/MicrosoftEdge-macOS-universal-$EDGE_VERSION.dmg"
+          echo "Created DMG: output/MicrosoftEdge-macOS-universal-$EDGE_VERSION.dmg"
+      - name: Upload Microsoft Edge DMG as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-dmg
+          path: output/*.dmg
