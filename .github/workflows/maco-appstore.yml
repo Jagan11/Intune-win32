@@ -1,8 +1,3 @@
-name: Get macOS App DMGs for Intune vscode
-
-on:
-  workflow_dispatch:
-
 jobs:
   vscode-dmg:
     runs-on: macos-latest
@@ -10,7 +5,7 @@ jobs:
       - name: Create directories
         run: |
           mkdir -p input output
-
+      
       - name: Download latest VSCode macOS Universal (ZIP)
         run: |
           curl -L "https://update.code.visualstudio.com/latest/darwin-universal/stable" -o "input/VSCode.zip"
@@ -45,7 +40,8 @@ jobs:
           echo "hdiutil attach output:"
           echo "$MOUNT_OUTPUT"
 
-          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep -o '/Volumes/[^ ]*' | head -n 1)
+          # CORRECTED LINE: This will now correctly capture the full mount path
+          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | awk '{$1=$2=$3=""; sub(/^[ \t]+/, ""); print}')
           echo "Mounted DMG at: $MOUNTPOINT"
 
           if [ -z "$MOUNTPOINT" ]; then
