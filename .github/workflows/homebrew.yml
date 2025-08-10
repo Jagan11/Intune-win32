@@ -11,21 +11,69 @@ jobs:
         run: |
           mkdir -p input output tools
 
-      - name: Upload install_homebrew.sh script
-        # This assumes you checked in install_homebrew.sh under input/
+      - name: Checkout repository and Homebrew install script
         uses: actions/checkout@v3
+        # Assuming 'install_homebrew.sh' is at the root of your repository
+        # If it's in a subdirectory like 'scripts/', adjust path:
+        # - name: Copy Homebrew install script
+        #   run: cp scripts/install_homebrew.sh input/install_homebrew.sh
 
-      - name: Download Intune App Wrapping Tool for macOS
+      - name: Create wrapper install script for Homebrew
         run: |
-          curl -L -o tools/IntuneAppUtil "https://github.com/msintuneappshell/intune-app-wrapping-tool-macos/releases/latest/download/IntuneAppUtil"
+          # Create a wrapper script that calls the Homebrew install script,
+          # ensuring it runs non-interactively and from its proper relative path.
+          # We assume 'install_homebrew.sh' is now in the workflow's root directory
+          # due to actions/checkout, so we copy it to 'input/' if it's not already there
+          # or if you want to ensure it's in a specific place for the IntuneAppUtil.
+          
+          # First, ensure install_homebrew.sh is in the input directory if it's not already
+          if [ ! -f "input/install_homebrew.sh" ]; then
+            # Assuming install_homebrew.sh is at the repo root after checkout
+            cp install_homebrew.sh input/install_homebrew.sh
+          fi
+
+          cat > input/run_homebrew_install.sh <<'EOF'
+          #!/bin/bash
+          echo "Starting Homebrew installation via wrapper script..."
+          # Execute the actual Homebrew install script from the same directory
+          NONINTERACTIVE=1 /bin/bash "$(dirname "$0")/install_homebrew.sh"
+          if [ $? -ne 0 ]; then
+            echo "Homebrew installation failed."
+            exit 1
+          fi
+          echo "Homebrew installation completed successfully."
+          EOF
+          chmod +x input/run_homebrew_install.sh
+          echo "Wrapper script 'run_homebrew_install.sh' created and made executable."
+
+      - name: Download Intune App Wrapping Tool for macOS (via Git Clone)
+        run: |
+          # Clone the official repository for IntuneAppUtil for reliable download
+          echo "Cloning Intune App Utility repository..."
+          git clone https://github.com/microsoft/shell-intune-app-utility.git tools/intune-app-utility-repo
+          
+          # Move the IntuneAppUtil script to the main tools directory
+          echo "Moving IntuneAppUtil executable to tools/..."
+          mv tools/intune-app-utility-repo/IntuneAppUtil tools/IntuneAppUtil
+          
+          # Make the script executable
           chmod +x tools/IntuneAppUtil
+          echo "IntuneAppUtil downloaded and made executable."
+          
+          # Clean up the cloned repository folder
+          echo "Cleaning up temporary git repo..."
+          rm -rf tools/intune-app-utility-repo
 
-      - name: Wrap install_homebrew.sh script into .intunemac
+      - name: Wrap run_homebrew_install.sh script into .intunemac
         run: |
-          ./tools/IntuneAppUtil -c input/install_homebrew.sh -o output/install_homebrew.intunemac
+          # Use the wrapper script as the input for IntuneAppUtil
+          echo "Wrapping run_homebrew_install.sh into .intunemac format..."
+          ./tools/IntuneAppUtil -c input/run_homebrew_install.sh -o output/HomebrewInstaller.intunemac
+          echo "HomebrewInstaller.intunemac created."
 
       - name: Upload wrapped .intunemac artifact
         uses: actions/upload-artifact@v4
         with:
           name: homebrew-installer-intunemac
-          path: output/install_homebrew.intunemac
+          path: output/HomebrewInstaller.intunemac
+          retention-days: 7 # Optional: Retain artifact for 7 days
