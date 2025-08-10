@@ -1,4 +1,4 @@
-name: Package VSCode DMG for Intune
+name: Package VSCode DMG for Intune vscode
 
 on:
   workflow_dispatch:
@@ -16,15 +16,32 @@ jobs:
         run: |
           curl -L "https://update.code.visualstudio.com/latest/darwin/stable" -o "input/VSCode.dmg"
 
-      # 3. Download Intune App Wrapping Tool
+      # 3. Download Intune App Wrapping Tool (more robust method)
       - name: Download Intune App Wrapping Tool
         run: |
-          curl -L "https://github.com/msintuneappshell/intune-app-wrapping-tool-macos/releases/latest/download/IntuneAppUtil" -o tools/IntuneAppUtil
+          # Get the URL for the latest release .zip or .tar.gz archive
+          # This fetches release metadata and extracts the download URL for the source code archive
+          RELEASE_URL=$(curl -s "https://api.github.com/repos/microsoft/shell-intune-app-utility/releases/latest" | grep "browser_download_url.*tar.gz" | cut -d : -f 2,3 | tr -d \" | wget -qi -)
+          
+          # Download the release archive
+          curl -L "$RELEASE_URL" -o tools/IntuneAppUtility.tar.gz
+          
+          # Extract the archive
+          tar -xzf tools/IntuneAppUtility.tar.gz -C tools/
+          
+          # Move the IntuneAppUtil executable to the main tools directory and make it executable
+          # The executable is usually directly inside the extracted folder named like 'shell-intune-app-utility-main'
+          mv tools/shell-intune-app-utility-main/IntuneAppUtil tools/IntuneAppUtil
           chmod +x tools/IntuneAppUtil
+          
+          # Clean up the downloaded archive and extracted folder
+          rm tools/IntuneAppUtility.tar.gz
+          rm -rf tools/shell-intune-app-utility-main/
 
       # 4. Wrap VSCode DMG into Intune format
       - name: Wrap VSCode DMG
         run: |
+          # The tool is now correctly downloaded and executable
           ./tools/IntuneAppUtil -c input/VSCode.dmg -o output/VSCode.intunemac
 
       # 5. Upload wrapped package as artifact
