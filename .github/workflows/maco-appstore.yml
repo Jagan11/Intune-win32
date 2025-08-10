@@ -1,4 +1,4 @@
-name: Package VSCode as IntuneMac
+name: Package macOS VSCode as IntuneMac
 
 on:
   workflow_dispatch:
@@ -7,35 +7,35 @@ jobs:
   package-vscode:
     runs-on: macos-latest
     steps:
-      - name: Set up directories
+      - name: Setup directories
         run: |
           mkdir -p input output tools
 
       - name: Download VSCode DMG
         run: |
-          curl -L "https://update.code.visualstudio.com/latest/darwin/stable" -o "input/VSCode.dmg"
+          curl -L "https://update.code.visualstudio.com/latest/darwin/stable" -o input/VSCode.dmg
 
       - name: Mount VSCode DMG and copy .app
         run: |
-          hdiutil attach input/VSCode.dmg -nobrowse -quiet
-          cp -R "/Volumes/Visual Studio Code/Visual Studio Code.app" input/
-          hdiutil detach "/Volumes/Visual Studio Code" -quiet
+          MOUNTPOINT=$(hdiutil attach input/VSCode.dmg -nobrowse -quiet | grep "/Volumes" | awk '{print $3}')
+          echo "Mounted at: $MOUNTPOINT"
+          cp -R "$MOUNTPOINT/Visual Studio Code.app" input/
+          hdiutil detach "$MOUNTPOINT" -quiet
 
-      - name: Build VSCode .pkg installer
+      - name: Create VSCode pkg installer
         run: |
-          pkgbuild --install-location /Applications --component "input/Visual Studio Code.app" "input/VSCode.pkg"
+          pkgbuild --install-location /Applications --component "input/Visual Studio Code.app" input/VSCode.pkg
 
-      - name: Download Intune App Wrapping Tool for macOS
+      - name: Download Intune App Wrapping Tool
         run: |
-          mkdir -p tools
           curl -L -o tools/IntuneAppUtil "https://github.com/msintuneappshell/intune-app-wrapping-tool-macos/releases/latest/download/IntuneAppUtil"
           chmod +x tools/IntuneAppUtil
 
-      - name: Wrap VSCode .pkg to .intunemac
+      - name: Wrap VSCode pkg to intunemac
         run: |
           ./tools/IntuneAppUtil -c input/VSCode.pkg -o output/VSCode.intunemac
 
-      - name: Upload VSCode package artifact
+      - name: Upload VSCode intunemac artifact
         uses: actions/upload-artifact@v4
         with:
           name: vscode-intunemac
