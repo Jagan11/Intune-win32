@@ -11,31 +11,30 @@ jobs:
         run: |
           mkdir -p input output tools
 
-      - name: Checkout repository and Homebrew install script
+      - name: Checkout repository
         uses: actions/checkout@v3
-        # Assumes 'install_homebrew.sh' is at repo root
 
-      - name: Create wrapper install script for Homebrew
+      - name: Prepare install scripts
         run: |
-          # Copy install_homebrew.sh to input if not already there
+          mkdir -p input
           if [ ! -f "input/install_homebrew.sh" ]; then
             cp install_homebrew.sh input/install_homebrew.sh
           fi
 
           cat > input/run_homebrew_install.sh <<'EOF'
-          #!/bin/bash
-          echo "Starting Homebrew installation via wrapper script..."
-          NONINTERACTIVE=1 /bin/bash "$(dirname "$0")/install_homebrew.sh"
-          if [ $? -ne 0 ]; then
-            echo "Homebrew installation failed."
-            exit 1
-          fi
-          echo "Homebrew installation completed successfully."
-          EOF
+#!/bin/bash
+echo "Starting Homebrew installation via wrapper script..."
+NONINTERACTIVE=1 /bin/bash "$(dirname "$0")/install_homebrew.sh"
+if [ $? -ne 0 ]; then
+  echo "Homebrew installation failed."
+  exit 1
+fi
+echo "Homebrew installation completed successfully."
+EOF
           chmod +x input/run_homebrew_install.sh
           echo "Wrapper script created and made executable."
 
-      - name: Download Intune App Wrapping Tool for macOS (via Git Clone)
+      - name: Download Intune App Wrapping Tool for macOS
         run: |
           echo "Cloning Intune App Utility repository..."
           git clone https://github.com/microsoft/shell-intune-app-utility.git tools/intune-app-utility-repo
@@ -43,13 +42,12 @@ jobs:
           chmod +x tools/IntuneAppUtil
           rm -rf tools/intune-app-utility-repo
 
-      - name: Wrap run_homebrew_install.sh script into .intunemac
+      - name: Wrap script into .intunemac
         run: |
-          echo "Wrapping run_homebrew_install.sh into .intunemac format..."
           ./tools/IntuneAppUtil -c input/run_homebrew_install.sh -o output/HomebrewInstaller.intunemac
-          echo "Created HomebrewInstaller.intunemac."
+          echo "Created HomebrewInstaller.intunemac"
 
-      - name: Upload wrapped .intunemac artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: homebrew-installer-intunemac
