@@ -17,9 +17,13 @@ jobs:
       - name: Prepare install scripts
         run: |
           mkdir -p input
+          # Ensure install_homebrew.sh is in the input directory
+          # This assumes install_homebrew.sh is at the root of your Git repository
           if [ ! -f "input/install_homebrew.sh" ]; then
             cp install_homebrew.sh input/install_homebrew.sh
           fi
+          # Create the wrapper script.
+          # IMPORTANT: The 'EOF' markers must be at the exact same indentation level as the 'cat' command.
           cat > input/run_homebrew_install.sh <<'EOF'
 #!/bin/bash
 echo "Starting Homebrew installation via wrapper script..."
@@ -30,6 +34,7 @@ if [ $? -ne 0 ]; then
 fi
 echo "Homebrew installation completed successfully."
 EOF
+          # Ensure the wrapper script is executable
           chmod +x input/run_homebrew_install.sh
           echo "Wrapper script created and made executable."
 
@@ -40,9 +45,11 @@ EOF
           mv tools/intune-app-utility-repo/IntuneAppUtil tools/IntuneAppUtil
           chmod +x tools/IntuneAppUtil
           rm -rf tools/intune-app-utility-repo
+          echo "Intune App Wrapping Tool downloaded and made executable."
 
       - name: Wrap script into .intunemac
         run: |
+          echo "Wrapping run_homebrew_install.sh into .intunemac..."
           ./tools/IntuneAppUtil -c input/run_homebrew_install.sh -o output/HomebrewInstaller.intunemac
           echo "Created HomebrewInstaller.intunemac"
 
@@ -52,5 +59,3 @@ EOF
           name: homebrew-installer-intunemac
           path: output/HomebrewInstaller.intunemac
           retention-days: 7
-
-          
