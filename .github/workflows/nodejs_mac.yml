@@ -1,4 +1,4 @@
-name: Get Universal Node.js LTS PKGs for Intune
+name: Get Node.js PKG for Intune
 
 on:
   workflow_dispatch:
@@ -8,17 +8,22 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Create directories
-        run: mkdir -p output
+        run: |
+          mkdir -p output
 
       - name: Get latest Node.js LTS version with macOS PKGs
         run: |
           set -eux
-          NODE_INDEX=$(curl -s "https://nodejs.org/dist/index.json")
+          
+          # Fetch Node.js release index
+          NODE_INDEX=$(curl -s https://nodejs.org/dist/index.json)
 
-          # Find the latest LTS release that has both darwin-x64 and darwin-arm64 PKGs
+          # Find latest LTS version that has both darwin-x64 and darwin-arm64 PKG installers
           LTS_VERSION=$(echo "$NODE_INDEX" | jq -r '
-            .[] | select(.lts != false and .lts != null)
-            | select(.files | index("darwin-x64") and .files | index("darwin-arm64"))
+            .[]
+            | select(.lts != false and .lts != null)
+            | select((.files | type) == "array")
+            | select(index("darwin-x64") and index("darwin-arm64"))
             | .version
           ' | head -n 1)
 
@@ -30,7 +35,7 @@ jobs:
           echo "Found LTS version: $LTS_VERSION"
           echo "NODEJS_VERSION=$LTS_VERSION" >> $GITHUB_ENV
 
-      - name: Download both Intel & ARM installers
+      - name: Download Node.js PKGs
         run: |
           set -eux
           ARCHS=("darwin-x64" "darwin-arm64")
@@ -39,8 +44,9 @@ jobs:
             INSTALLER_FILENAME="node-${NODEJS_VERSION}-${ARCH}.pkg"
             DOWNLOAD_URL="https://nodejs.org/dist/${NODEJS_VERSION}/${INSTALLER_FILENAME}"
             echo "Downloading $DOWNLOAD_URL"
-            curl -fL "$DOWNLOAD_URL" -o "output/$INSTALLER_FILENAME"
+            curl -L "$DOWNLOAD_URL" -o "output/$INSTALLER_FILENAME"
 
+            # Verify file size (at least 10 MB)
             FILE_SIZE_BYTES=$(stat -f %z "output/$INSTALLER_FILENAME")
             if [ "$FILE_SIZE_BYTES" -lt 10000000 ]; then
               echo "Error: $INSTALLER_FILENAME is too small ($FILE_SIZE_BYTES bytes)."
@@ -48,15 +54,8 @@ jobs:
             fi
           done
 
-      - name: Create universal zip for Intune
-        run: |
-          cd output
-          UNIVERSAL_FILENAME="node-${NODEJS_VERSION}-macos-universal.zip"
-          zip -r "$UNIVERSAL_FILENAME" *.pkg
-          echo "UNIVERSAL_FILENAME=$UNIVERSAL_FILENAME" >> $GITHUB_ENV
-
-      - name: Upload Node.js Universal PKG zip
+      - name: Upload Node.js PKGs as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nodejs-universal-pkg
-          path: output/*.zip
+          name: nodejs-pkgs
+          path: output/*.pkg
