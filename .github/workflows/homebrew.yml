@@ -38,9 +38,14 @@ jobs:
           chmod +x scripts/run_homebrew_install.sh
           echo "Wrapper script created."
 
-      - name: Download Intune App Wrapping Tool for macOS
+      - name: Checkout Intune App Wrapping Tool
+        uses: actions/checkout@v3
+        with:
+          repository: microsoft/shell-intune-app-utility
+          path: tools/intune-app-utility-repo
+
+      - name: Prepare Intune App Utility
         run: |
-          git clone https://github.com/microsoft/shell-intune-app-utility.git tools/intune-app-utility-repo
           mv tools/intune-app-utility-repo/IntuneAppUtil tools/IntuneAppUtil
           chmod +x tools/IntuneAppUtil
           rm -rf tools/intune-app-utility-repo
