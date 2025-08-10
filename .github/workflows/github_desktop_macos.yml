@@ -10,9 +10,11 @@ jobs:
       - name: Create directories
         run: |
           mkdir -p input output
+
       - name: Download latest GitHub Desktop macOS Universal (ZIP)
         run: |
           curl -L "https://central.github.com/deployments/desktop/desktop/latest/darwin" -o "input/GitHubDesktop.zip"
+
       - name: Unzip GitHub Desktop and set app path
         run: |
           unzip -q input/GitHubDesktop.zip -d input/
@@ -22,11 +24,13 @@ jobs:
             exit 1
           fi
           echo "GITHUB_APP_FULL_PATH=$GITHUB_APP_FULL_PATH" >> $GITHUB_ENV
+
       - name: Get GitHub Desktop version
         run: |
           VERSION=$(defaults read "$GITHUB_APP_FULL_PATH/Contents/Info.plist" CFBundleShortVersionString || echo "unknown")
           echo "GHDESKTOP_VERSION=$VERSION" | tee -a $GITHUB_ENV
           echo "GitHub Desktop version: $VERSION"
+
       - name: Create GitHub Desktop DMG from app bundle
         run: |
           set -eux
@@ -41,7 +45,8 @@ jobs:
           echo "hdiutil attach output:"
           echo "$MOUNT_OUTPUT"
 
-          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | awk '{print $NF}')
+          # Extract full mount path with /Volumes prefix
+          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep -o '/Volumes/[^ ]*' | head -n 1)
           echo "Mounted DMG at: $MOUNTPOINT"
 
           if [ -z "$MOUNTPOINT" ]; then
@@ -60,6 +65,7 @@ jobs:
           mv "$TEMP_DMG_PATH" "$FINAL_DMG"
 
           echo "Created DMG: $FINAL_DMG"
+
       - name: Upload GitHub Desktop DMG as artifact
         uses: actions/upload-artifact@v4
         with:
