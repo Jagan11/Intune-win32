@@ -16,7 +16,6 @@ jobs:
       - name: Unzip VSCode and set app path
         run: |
           unzip -q input/VSCode.zip -d input/
-          # Find the actual .app bundle path, as it might be nested
           VSCODE_APP_FULL_PATH=$(find input -maxdepth 2 -name "Visual Studio Code.app" -type d | head -n 1)
           if [ -z "$VSCODE_APP_FULL_PATH" ]; then
             echo "Error: Visual Studio Code.app not found after unzipping."
@@ -25,7 +24,6 @@ jobs:
           echo "VSCODE_APP_FULL_PATH=$VSCODE_APP_FULL_PATH" >> $GITHUB_ENV
       - name: Get VSCode version
         run: |
-          # Read the version using the correct path
           VERSION=$(defaults read "$VSCODE_APP_FULL_PATH/Contents/Info.plist" CFBundleShortVersionString || echo "unknown")
           echo "VSCODE_VERSION=$VERSION" >> $GITHUB_ENV
           echo "VSCode version: $VERSION"
@@ -43,8 +41,8 @@ jobs:
           echo "hdiutil attach output:"
           echo "$MOUNT_OUTPUT"
 
-          # Extract the mount point correctly, handling spaces
-          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | awk '{$1=$2=$3=""; sub(/^[ \t]+/, ""); print}')
+          # CORRECTED LINE: Extract the mount point as the last field on the line containing '/Volumes/'
+          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | awk '{print $NF}')
           echo "Mounted DMG at: $MOUNTPOINT"
 
           if [ -z "$MOUNTPOINT" ]; then
@@ -68,7 +66,6 @@ jobs:
         with:
           name: vscode-dmg
           path: output/*.dmg
-
 ---
 
   github-desktop-dmg:
