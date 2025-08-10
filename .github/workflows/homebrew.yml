@@ -18,6 +18,8 @@ jobs:
 
       - name: Download Intune App Wrapping Tool for macOS
         run: |
+          # Remove directory if exists to avoid clone errors
+          if [ -d "tools/intune-app-utility-repo" ]; then rm -rf tools/intune-app-utility-repo; fi
           git clone https://github.com/microsoft/shell-intune-app-utility.git tools/intune-app-utility-repo
           mv tools/intune-app-utility-repo/IntuneAppUtil tools/IntuneAppUtil
           chmod +x tools/IntuneAppUtil
