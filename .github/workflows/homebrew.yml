@@ -23,7 +23,8 @@ jobs:
             cp install_homebrew.sh input/install_homebrew.sh
           fi
           # Create the wrapper script.
-          # IMPORTANT: The 'EOF' markers must be at the exact same indentation level as the 'cat' command.
+          # IMPORTANT: The 'EOF' markers and the script content must be
+          # indented at the same level as the 'cat' command itself.
           cat > input/run_homebrew_install.sh <<'EOF'
 #!/bin/bash
 echo "Starting Homebrew installation via wrapper script..."
