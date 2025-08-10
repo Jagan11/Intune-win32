@@ -1,1 +1,49 @@
 
+name: Package GitHub Desktop PKG for Intune
+
+on:
+  workflow_dispatch:
+
+jobs:
+  github-desktop-pkg:
+    runs-on: macos-latest
+
+    steps:
+      - name: Create directories
+        run: |
+          mkdir -p input output
+
+      - name: Download latest GitHub Desktop macOS Universal (ZIP)
+        run: |
+          curl -L "https://central.github.com/deployments/desktop/desktop/latest/darwin" -o "input/GitHubDesktop.zip"
+
+      - name: Unzip GitHub Desktop and set app path
+        run: |
+          unzip -q input/GitHubDesktop.zip -d input/
+          GITHUB_APP_FULL_PATH=$(find input -maxdepth 2 -name "GitHub Desktop.app" -type d | head -n 1)
+          if [ -z "$GITHUB_APP_FULL_PATH" ]; then
+            echo "Error: GitHub Desktop.app not found in the unzipped directory."
+            exit 1
+          fi
+          echo "GITHUB_APP_FULL_PATH=$GITHUB_APP_FULL_PATH" >> $GITHUB_ENV
+
+      - name: Get GitHub Desktop version
+        run: |
+          VERSION=$(defaults read "$GITHUB_APP_FULL_PATH/Contents/Info.plist" CFBundleShortVersionString || echo "unknown")
+          echo "GHDESKTOP_VERSION=$VERSION" | tee -a $GITHUB_ENV
+          echo "GitHub Desktop version: $VERSION"
+
+      - name: Create PKG installer from app bundle
+        run: |
+          set -eux
+          mkdir -p output
+          PKG_OUTPUT="output/GitHubDesktop-macOS-universal-$GHDESKTOP_VERSION.pkg"
+          pkgbuild --install-location /Applications --component "$GITHUB_APP_FULL_PATH" "$PKG_OUTPUT"
+          echo "Created PKG installer at $PKG_OUTPUT"
+
+      - name: Upload PKG as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-desktop-pkg
+          path: output/*.pkg
+          retention-days: 7
