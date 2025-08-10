@@ -4,43 +4,43 @@ on:
   workflow_dispatch: # Allows manual triggering of the workflow
 
 jobs:
-  vscode-dmg:
-    runs-on: macos-latest
-    steps:
-      - name: Create directories
-        run: |
-          mkdir -p input output
-      - name: Download latest VSCode macOS Universal (ZIP)
-        run: |
-          curl -L "https://update.code.visualstudio.com/latest/darwin-universal/stable" -o "input/VSCode.zip"
-      - name: Unzip VSCode
-        run: |
-          unzip -q input/VSCode.zip -d input/
-      - name: Get VSCode version and set app path
-        run: |
-          VSCODE_APP_FULL_PATH=$(find input -maxdepth 2 -name "Visual Studio Code.app" -type d | head -n 1)
-          if [ -z "$VSCODE_APP_FULL_PATH" ]; then
-            echo "Error: Visual Studio Code.app not found after unzipping."
-            exit 1
-          fi
-          VERSION=$(defaults read "$VSCODE_APP_FULL_PATH/Contents/Info.plist" CFBundleShortVersionString)
-          echo "VSCODE_VERSION=$VERSION" | tee -a $GITHUB_ENV
-          echo "VSCode version: $VERSION"
-          echo "VSCODE_APP_FULL_PATH=$VSCODE_APP_FULL_PATH" | tee -a $GITHUB_ENV
-      - name: Create VSCode DMG from app bundle
-        run: |
-          TEMP_DMG_PATH="output/VSCode-temp.dmg"
-          hdiutil create -size 500m -fs HFS+ -volname "Visual Studio Code" -o "$TEMP_DMG_PATH"
-          hdiutil attach "$TEMP_DMG_PATH" -nobrowse -quiet
-          cp -r "$VSCODE_APP_FULL_PATH" "/Volumes/Visual Studio Code/"
-          hdiutil detach "/Volumes/Visual Studio Code" -quiet
-          mv "$TEMP_DMG_PATH" "output/VSCode-macOS-universal-$VSCODE_VERSION.dmg"
-          echo "Created DMG: output/VSCode-macOS-universal-$VSCODE_VERSION.dmg"
-      - name: Upload VSCode DMG as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: vscode-dmg
-          path: output/*.dmg
+  # vscode-dmg:
+  #   runs-on: macos-latest
+  #   steps:
+  #     - name: Create directories
+  #       run: |
+  #         mkdir -p input output
+  #     - name: Download latest VSCode macOS Universal (ZIP)
+  #       run: |
+  #         curl -L "https://update.code.visualstudio.com/latest/darwin-universal/stable" -o "input/VSCode.zip"
+  #     - name: Unzip VSCode
+  #       run: |
+  #         unzip -q input/VSCode.zip -d input/
+  #     - name: Get VSCode version and set app path
+  #       run: |
+  #         VSCODE_APP_FULL_PATH=$(find input -maxdepth 2 -name "Visual Studio Code.app" -type d | head -n 1)
+  #         if [ -z "$VSCODE_APP_FULL_PATH" ]; then
+  #           echo "Error: Visual Studio Code.app not found after unzipping."
+  #           exit 1
+  #         fi
+  #         VERSION=$(defaults read "$VSCODE_APP_FULL_PATH/Contents/Info.plist" CFBundleShortVersionString)
+  #         echo "VSCODE_VERSION=$VERSION" | tee -a $GITHUB_ENV
+  #         echo "VSCode version: $VERSION"
+  #         echo "VSCODE_APP_FULL_PATH=$VSCODE_APP_FULL_PATH" | tee -a $GITHUB_ENV
+  #     - name: Create VSCode DMG from app bundle
+  #       run: |
+  #         TEMP_DMG_PATH="output/VSCode-temp.dmg"
+  #         hdiutil create -size 500m -fs HFS+ -volname "Visual Studio Code" -o "$TEMP_DMG_PATH"
+  #         hdiutil attach "$TEMP_DMG_PATH" -nobrowse -quiet
+  #         cp -r "$VSCODE_APP_FULL_PATH" "/Volumes/Visual Studio Code/"
+  #         hdiutil detach "/Volumes/Visual Studio Code" -quiet
+  #         mv "$TEMP_DMG_PATH" "output/VSCode-macOS-universal-$VSCODE_VERSION.dmg"
+  #         echo "Created DMG: output/VSCode-macOS-universal-$VSCODE_VERSION.dmg"
+  #     - name: Upload VSCode DMG as artifact
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: vscode-dmg
+  #         path: output/*.dmg
 
 ---
 
