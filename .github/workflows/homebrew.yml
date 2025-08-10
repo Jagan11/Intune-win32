@@ -8,40 +8,32 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: Prepare scripts folder and ensure executables
+      - name: Prepare scripts executables
         run: |
           chmod +x scripts/install_homebrew.sh
           chmod +x scripts/run_homebrew_install.sh
 
-      - name: Download Intune App Wrapping Tool for macOS
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup tools folder
+        run: mkdir -p tools output
+
+      - name: Download Intune App Wrapping Tool
         run: |
-          # Clean up any existing directory to avoid clone errors
+          # Clean up if exists
           if [ -d "tools/intune-app-utility-repo" ]; then rm -rf tools/intune-app-utility-repo; fi
-
-          # Configure git to use token for authentication automatically
-          git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
-
-          # Clone the repo
           git clone https://github.com/microsoft/shell-intune-app-utility.git tools/intune-app-utility-repo
-
-          # Move the IntuneAppUtil executable and make it executable
           mv tools/intune-app-utility-repo/IntuneAppUtil tools/IntuneAppUtil
           chmod +x tools/IntuneAppUtil
-
-          # Clean up
           rm -rf tools/intune-app-utility-repo
 
-      - name: Wrap run_homebrew_install.sh script into .intunemac
+      - name: Wrap installer into .intunemac
         run: |
           ./tools/IntuneAppUtil -c scripts/run_homebrew_install.sh -o output/HomebrewInstaller.intunemac
           echo "Created HomebrewInstaller.intunemac"
 
-      - name: Upload wrapped .intunemac artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: homebrew-installer-intunemac
