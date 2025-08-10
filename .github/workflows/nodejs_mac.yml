@@ -1,0 +1,43 @@
+name: Get macOS App DMGs for Intune
+
+on:
+  workflow_dispatch: # Allows manual triggering of the workflow
+
+jobs:
+  nodejs-pkg:
+    runs-on: macos-latest
+    steps:
+      - name: Create directories
+        run: |
+          mkdir -p input output
+      - name: Get latest Node.js LTS version and download URL
+        run: |
+          NODE_INDEX=$(curl -s "https://nodejs.org/dist/index.json")
+          LTS_VERSION=$(echo "$NODE_INDEX" | jq -r '.[].version' | grep '^v[0-9]\+\.[0-9]\+\.[0-9]\+$' | sort -V | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | tail -n 1)
+          
+          if [ -z "$LTS_VERSION" ]; then
+            echo "Error: Could not determine latest LTS Node.js version."
+            exit 1
+          fi
+
+          DOWNLOAD_URL="https://nodejs.org/dist/$LTS_VERSION/node-$LTS_VERSION-darwin-x64.pkg"
+          INSTALLER_FILENAME="node-$LTS_VERSION-darwin-x64.pkg"
+          
+          echo "NODEJS_VERSION=$LTS_VERSION" >> $GITHUB_ENV
+          echo "NODEJS_DOWNLOAD_URL=$DOWNLOAD_URL" >> $GITHUB_ENV
+          echo "NODEJS_INSTALLER_FILENAME=$INSTALLER_FILENAME" >> $GITHUB_ENV
+
+          echo "Found Node.js LTS version: $LTS_VERSION"
+          echo "Download URL: $DOWNLOAD_URL"
+          echo "Installer filename: $INSTALLER_FILENAME"
+
+      - name: Download Node.js PKG
+        run: |
+          curl -L "$NODEJS_DOWNLOAD_URL" -o "output/$NODEJS_INSTALLER_FILENAME"
+          echo "Downloaded Node.js PKG: output/$NODEJS_INSTALLER_FILENAME"
+
+      - name: Upload Node.js PKG as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nodejs-pkg
+          path: output/*.pkg
