@@ -40,9 +40,9 @@ jobs:
             eval "$(/opt/homebrew/bin/brew shellenv)" # Also eval for current shell
           fi
 
-          echo "Installing build dependencies: git, qt@5, pkgconf, cmake, ada-url, boost..."
-          # Added 'boost' to the brew install command
-          brew install git qt@5 pkgconf cmake ada-url boost || brew upgrade git qt@5 pkgconf cmake ada-url boost
+          echo "Installing build dependencies: git, qt@5, pkgconf, cmake, ada-url, boost, ffmpeg..."
+          # Added 'ffmpeg' to the brew install command
+          brew install git qt@5 pkgconf cmake ada-url boost ffmpeg || brew upgrade git qt@5 pkgconf cmake ada-url boost ffmpeg
 
           echo "Dependencies installed successfully."
 
