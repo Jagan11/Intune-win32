@@ -1,38 +1,60 @@
-name: Package Slack macOS DMG
+name: Package Slack macOS .intunemac
 
 on:
   workflow_dispatch:
 
 jobs:
-  slack-macos-dmg:
+  package-slack:
     runs-on: macos-latest
     steps:
       - name: Create directories
         run: |
+          mkdir -p input
           mkdir -p output
+          mkdir -p tools
+          mkdir -p temp_app_dir # Directory to hold the extracted .app
 
-      - name: Download latest Slack macOS DMG
-        # Slack provides a direct DMG download from their official site
-        # We need to find the latest version dynamically or rely on a static "latest" link
-        # For simplicity, we'll use the static download link for the latest, which usually redirects.
-        run: |
-          curl -L "https://slack.com/ssb/download-osx" -o "output/Slack-latest.dmg"
-          echo "Downloaded Slack DMG to output/Slack-latest.dmg"
+      - name: Checkout repository (for IntuneAppUtil setup)
+        uses: actions/checkout@v3
 
-      - name: Get Slack version from DMG
+      - name: Download Microsoft Shell Intune App Utility
         run: |
           set -eux
-          DMG_PATH="output/Slack-latest.dmg"
-          VOL_NAME="Slack" # Standard volume name for Slack DMG
+          echo "Cloning Shell Intune App Utility..."
+          git clone --depth 1 https://github.com/microsoft/shell-intune-app-utility.git tools/intune-app-utility-repo
+          
+          # Move IntuneAppUtil to the tools directory and make it executable
+          mv tools/intune-app-utility-repo/IntuneAppUtil tools/IntuneAppUtil
+          chmod +x tools/IntuneAppUtil
+          
+          # Clean up the cloned repository
+          rm -rf tools/intune-app-utility-repo
+          echo "IntuneAppUtil prepared."
 
-          echo "Attaching DMG for version check..."
-          # Attach the DMG quietly to get its mount point
+      - name: Download latest Slack macOS DMG
+        run: |
+          echo "Downloading latest Slack DMG..."
+          # Use a direct link to the latest stable Slack DMG
+          # This URL is more reliable than the ssb/download-osx redirect
+          curl -L "https://downloads.slack-edge.com/releases/macos/Slack-latest.dmg" -o "input/Slack-latest.dmg"
+          echo "Downloaded Slack DMG to input/Slack-latest.dmg"
+
+      - name: Extract Slack.app from DMG and get version
+        run: |
+          set -eux
+          DMG_PATH="input/Slack-latest.dmg"
+          APP_NAME="Slack.app" # Expected name of the application bundle inside the DMG
+          
+          echo "Attaching DMG for Slack.app extraction..."
+          # Attach the DMG, allowing it to be mounted
           MOUNT_OUTPUT=$(hdiutil attach "$DMG_PATH" -nobrowse -noverify)
           echo "hdiutil attach output:"
           echo "$MOUNT_OUTPUT"
 
           # Extract the mount point, robustly handling spaces in the volume name
-          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | sed -E 's/.*(\/Volumes\/.*)/\1/')
+          # The volume name for Slack DMG is typically just "Slack"
+          # Or it could be derived from the application name within the DMG
+          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | head -n 1 | sed -E 's/.*(\/Volumes\/.*)/\1/')
           echo "Mounted DMG at: $MOUNTPOINT"
 
           if [ -z "$MOUNTPOINT" ]; then
@@ -40,8 +62,13 @@ jobs:
             exit 1
           fi
 
-          # Read the CFBundleShortVersionString from the Slack.app's Info.plist
-          VERSION=$(defaults read "$MOUNTPOINT/Slack.app/Contents/Info.plist" CFBundleShortVersionString || echo "unknown")
+          # Copy the .app bundle to a temporary directory for packaging
+          echo "Copying $APP_NAME from DMG to temporary directory..."
+          cp -R "$MOUNTPOINT/$APP_NAME" "temp_app_dir/$APP_NAME"
+          echo "$APP_NAME copied."
+
+          # Read the CFBundleShortVersionString from the copied Slack.app's Info.plist
+          VERSION=$(defaults read "temp_app_dir/$APP_NAME/Contents/Info.plist" CFBundleShortVersionString || echo "unknown")
           echo "SLACK_VERSION=$VERSION" >> $GITHUB_ENV
           echo "Slack version: $VERSION"
 
@@ -49,15 +76,17 @@ jobs:
           hdiutil detach "$MOUNTPOINT" -quiet
           echo "DMG detached."
 
-      - name: Rename Slack DMG with version
+      - name: Create .intunemac package using IntuneAppUtil
         run: |
-          FINAL_DMG="output/Slack-macOS-$SLACK_VERSION.dmg"
-          mv "output/Slack-latest.dmg" "$FINAL_DMG"
-          echo "Renamed DMG to: $FINAL_DMG"
+          set -eux
+          # Run the IntuneAppUtil on the extracted Slack.app
+          # Output to the 'output' directory with a versioned name
+          ./tools/IntuneAppUtil -c "temp_app_dir" -o "output" -n "Slack-macOS-$SLACK_VERSION.intunemac"
+          echo "Slack-macOS-$SLACK_VERSION.intunemac created."
 
-      - name: Upload Slack DMG as artifact
+      - name: Upload .intunemac artifact
         uses: actions/upload-artifact@v4
         with:
-          name: slack-macos-dmg
-          path: output/*.dmg
+          name: slack-macos-intunemac
+          path: output/*.intunemac
           retention-days: 7
