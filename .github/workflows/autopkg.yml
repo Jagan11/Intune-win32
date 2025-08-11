@@ -8,24 +8,20 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-
-      - name: Install AutoPkg via pip
+      - name: Download and install AutoPkg
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install --user autopkg
-          echo "$(python3 -m site --user-base)/bin" >> $GITHUB_PATH
+          curl -L -o autopkg.pkg https://github.com/autopkg/autopkg/releases/latest/download/AutoPkg-2.7.5.pkg
+          sudo installer -pkg autopkg.pkg -target /
           autopkg --version
 
-      - name: Add official and custom recipe repos
+      - name: Add AutoPkg recipe repos
         run: |
+          # Add official AutoPkg community recipes
           autopkg repo-add https://github.com/autopkg/recipes.git
+          # Add your custom recipes from the checked out repo
           autopkg repo-add ./recipes
 
       - name: Set environment variable for custom processors
@@ -34,7 +30,7 @@ jobs:
       - name: Run VSCode.intunemac.recipe
         run: autopkg run VSCode.intunemac.recipe --verbose
 
-      - name: Find and upload .intunemac package as artifact
+      - name: Find and upload .intunemac artifact
         id: find-artifact
         run: |
           RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
