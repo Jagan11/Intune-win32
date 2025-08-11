@@ -35,23 +35,48 @@ jobs:
         run: |
           set -eux
           set -o pipefail # Ensure any error in a pipeline causes the script to exit immediately
-          echo "Downloading latest Slack DMG..."
-          # Ensure the 'input' directory exists immediately before download
-          mkdir -p input
-          ls -la # Diagnostic: List contents of current directory
-          ls -la input # Diagnostic: List contents of 'input' directory and its permissions
           
-          # Use a direct link to the latest stable Slack DMG
-          # This URL is more reliable than the ssb/download-osx redirect
-          # Using a relative path for the output file.
-          # Adding a common User-Agent header to mimic a browser, which can sometimes bypass server-side blocks.
-          curl -L "https://downloads.slack-edge.com/releases/macos/Slack-latest.dmg" \
+          echo "Fetching Slack macOS download page to find the direct DMG link..."
+          # Fetch the HTML content of the Slack macOS download page
+          DOWNLOAD_PAGE_URL="https://slack.com/downloads/macos"
+          HTML_CONTENT=$(curl -sL "$DOWNLOAD_PAGE_URL" -H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36")
+          
+          echo "--- START: HTML Content from Slack Download Page ---"
+          echo "$HTML_CONTENT" # Diagnostic: Print the raw HTML content
+          echo "--- END: HTML Content from Slack Download Page ---"
+
+          # Parse the HTML to find the .dmg download link.
+          # This grep/sed combination looks for lines containing ".dmg" and extracts the URL from href attributes.
+          # It assumes the structure includes an anchor tag with an href pointing to the DMG.
+          # Added -m 1 to grep to stop after first match for efficiency
+          DMG_DOWNLOAD_URL=$(echo "$HTML_CONTENT" | grep -m 1 -oE 'href="[^"]+\.dmg"' | sed 's/href="//;s/"$//')
+
+          if [ -z "$DMG_DOWNLOAD_URL" ]; then
+            echo "Error: Could not find a .dmg download URL on the Slack macOS download page."
+            exit 1
+          fi
+
+          echo "Found DMG download URL: $DMG_DOWNLOAD_URL"
+          
+          echo "Downloading latest Slack DMG from discovered URL..."
+          mkdir -p input # Ensure the 'input' directory exists immediately before download
+          
+          # Use the extracted URL for the actual download
+          curl -L "$DMG_DOWNLOAD_URL" \
             -o "input/Slack-latest.dmg" \
             -H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36"
           
           echo "Downloaded Slack DMG to input/Slack-latest.dmg"
           ls -la "input/Slack-latest.dmg" # Diagnostic: Verify file exists and its size
           file "input/Slack-latest.dmg" # Diagnostic: CRITICAL - Check the actual file type
+          
+          # Diagnostic: If the file is small or not a DMG, print its content
+          FILE_SIZE=$(stat -f %z "input/Slack-latest.dmg")
+          if [ "$FILE_SIZE" -lt 1000000 ] || ! file "input/Slack-latest.dmg" | grep -q "Apple disk image"; then
+              echo "--- START: Content of downloaded Slack-latest.dmg (likely not a valid DMG) ---"
+              head -n 20 "input/Slack-latest.dmg" || cat "input/Slack-latest.dmg" # Print first 20 lines or full content if smaller
+              echo "--- END: Content of downloaded Slack-latest.dmg ---"
+          fi
           
       - name: Extract Slack.app from DMG and get version
         run: |
