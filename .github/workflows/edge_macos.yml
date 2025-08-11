@@ -13,7 +13,6 @@ jobs:
 
       - name: Install dependencies (jq)
         run: |
-          # jq is required to parse JSON from GitHub API
           brew install jq
 
       - name: Install AutoPkg
@@ -32,8 +31,8 @@ jobs:
 
           FILE_SIZE=$(stat -f %z autopkg.pkg)
           if [ "$FILE_SIZE" -lt 1000000 ]; then
-              echo "Error: Downloaded autopkg.pkg too small ($FILE_SIZE bytes); likely a failed download."
-              exit 1
+            echo "Error: autopkg.pkg too small ($FILE_SIZE bytes), download failed."
+            exit 1
           fi
           echo "Downloaded autopkg.pkg size: $FILE_SIZE bytes."
 
@@ -44,51 +43,17 @@ jobs:
       - name: Add AutoPkg recipe repositories
         run: |
           autopkg repo-add https://github.com/autopkg/recipes.git
-          # Add your custom recipes repo if it exists in ./recipes folder
           if [ -d "./recipes" ]; then
             autopkg repo-add ./recipes
           else
-            echo "No local recipes folder found at ./recipes — skipping custom repo add"
+            echo "No local recipes folder found at ./recipes, skipping custom repo add."
           fi
 
-      - name: Set up IntuneAppUtil processor
-        run: |
-          echo "Cloning shell-intune-app-utility processor..."
-          git clone https://github.com/microsoft/shell-intune-app-utility.git tools/intune-app-utility-repo
-
-          RECIPE_REPO_DIR=$(autopkg pref-read RECIPE_REPO_DIR)
-          echo "AutoPkg RECIPE_REPO_DIR: $RECIPE_REPO_DIR"
-
-          PROCESSOR_DIR="$RECIPE_REPO_DIR/com.github.autopkg.intuneprocessors/"
-          mkdir -p "$PROCESSOR_DIR"
-
-          mv tools/intune-app-utility-repo/IntuneAppUtil "$PROCESSOR_DIR"/IntuneAppUtil
-          chmod +x "$PROCESSOR_DIR"/IntuneAppUtil
-
-          # Create the processor plist definition safely with a HEREDOC
-          cat > "$PROCESSOR_DIR"/IntuneAppUtil.py <<'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Processor</key>
-    <string>IntuneAppUtil</string>
-    <key>Arguments</key>
-    <dict>
-        <key>app_path</key>
-        <string>%app_path%</string>
-        <key>output_path</key>
-        <string>%output_path%</string>
-    </dict>
-</dict>
-</plist>
-EOF
-
-          rm -rf tools/intune-app-utility-repo
-          echo "IntuneAppUtil processor setup complete."
+      - name: Setup IntuneAppUtil processor via script
+        run: ./scripts/setup_intuneapputil_processor.sh
 
       - name: Set AUTO_PKG_PROCESSOR_PATHS environment variable
-        run: echo "AUTO_PKG_PROCESSOR_PATHS=$RECIPE_REPO_DIR/com.github.autopkg.intuneprocessors" >> $GITHUB_ENV
+        run: echo "AUTO_PKG_PROCESSOR_PATHS=$(autopkg pref-read RECIPE_REPO_DIR)/com.github.autopkg.intuneprocessors" >> $GITHUB_ENV
 
       - name: Create MicrosoftEdge.intunemac.recipe
         run: |
@@ -98,33 +63,33 @@ EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Description</key>
-    <string>Downloads latest Microsoft Edge and creates an .intunemac package.</string>
-    <key>Identifier</key>
-    <string>com.github.autopkg.intune.microsoftedge</string>
-    <key>Input</key>
+  <key>Description</key>
+  <string>Downloads latest Microsoft Edge and creates an .intunemac package.</string>
+  <key>Identifier</key>
+  <string>com.github.autopkg.intune.microsoftedge</string>
+  <key>Input</key>
+  <dict>
+    <key>NAME</key>
+    <string>MicrosoftEdge</string>
+  </dict>
+  <key>ParentRecipe</key>
+  <string>com.github.autopkg.pkg.microsoftedge</string>
+  <key>MinimumVersion</key>
+  <string>1.0.0</string>
+  <key>Process</key>
+  <array>
     <dict>
-        <key>NAME</key>
-        <string>MicrosoftEdge</string>
+      <key>Processor</key>
+      <string>IntuneAppUtil</string>
+      <key>Arguments</key>
+      <dict>
+        <key>app_path</key>
+        <string>%pkg_path%</string>
+        <key>output_path</key>
+        <string>%RECIPE_CACHE_DIR%/%NAME%-%version%.intunemac</string>
+      </dict>
     </dict>
-    <key>ParentRecipe</key>
-    <string>com.github.autopkg.pkg.microsoftedge</string>
-    <key>MinimumVersion</key>
-    <string>1.0.0</string>
-    <key>Process</key>
-    <array>
-        <dict>
-            <key>Processor</key>
-            <string>IntuneAppUtil</string>
-            <key>Arguments</key>
-            <dict>
-                <key>app_path</key>
-                <string>%pkg_path%</string>
-                <key>output_path</key>
-                <string>%RECIPE_CACHE_DIR%/%NAME%-%version%.intunemac</string>
-            </dict>
-        </dict>
-    </array>
+  </array>
 </dict>
 </plist>
 EOF
@@ -132,10 +97,10 @@ EOF
 
       - name: Run MicrosoftEdge.intunemac.recipe
         run: |
-          export AUTO_PKG_PROCESSOR_PATHS=$RECIPE_REPO_DIR/com.github.autopkg.intuneprocessors
+          export AUTO_PKG_PROCESSOR_PATHS=$(autopkg pref-read RECIPE_REPO_DIR)/com.github.autopkg.intuneprocessors
           autopkg run MicrosoftEdge.intunemac.recipe --verbose
 
-      - name: Find and upload .intunemac package artifact
+      - name: Find and upload .intunemac artifact
         id: find-artifact
         run: |
           RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
@@ -146,11 +111,11 @@ EOF
             echo "No .intunemac file found!"
             exit 1
           fi
-          echo "Found .intunemac package at: $INTUNEMAC_FILE"
 
+          echo "Found .intunemac artifact at: $INTUNEMAC_FILE"
           echo "INTUNEMAC_FILE=$INTUNEMAC_FILE" >> $GITHUB_ENV
 
-      - name: Upload .intunemac package artifact
+      - name: Upload .intunemac artifact
         uses: actions/upload-artifact@v4
         with:
           name: microsoft-edge-intunemac
