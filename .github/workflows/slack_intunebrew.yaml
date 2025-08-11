@@ -1,7 +1,7 @@
 name: Package macOS App for Intune
 
 on:
-  workflow_dispatch:
+  push:
     branches:
       - main
   workflow_dispatch:
