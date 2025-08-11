@@ -1,4 +1,4 @@
-name: Package Slack with Official IntuneBrew
+name: Package Slack with IntuneBrew (Joshua Avalon repo)
 
 on:
   push:
@@ -18,10 +18,10 @@ jobs:
           brew install go
           go version
 
-      - name: Checkout official IntuneBrew repo
+      - name: Checkout IntuneBrew repo
         uses: actions/checkout@v4
         with:
-          repository: microsoft/intunebrew
+          repository: joshuaavalon/intunebrew
           path: IntuneBrew
 
       - name: Build IntuneBrew CLI
