@@ -20,11 +20,12 @@ jobs:
       - name: Download Microsoft Shell Intune App Utility
         run: |
           set -eux
-          echo "Cloning Shell Intune App Utility..."
-          git clone --depth 1 https://github.com/microsoft/shell-intune-app-utility.git tools/intune-app-utility-repo
+          echo "Cloning Shell Intune Samples repository to get IntuneAppUtil..."
+          # Corrected repository URL for IntuneAppUtil
+          GIT_TERMINAL_PROMPT=0 git clone --depth 1 https://github.com/microsoft/shell-intune-samples.git tools/intune-app-utility-repo
           
-          # Move IntuneAppUtil to the tools directory and make it executable
-          mv tools/intune-app-utility-repo/IntuneAppUtil tools/IntuneAppUtil
+          # Move IntuneAppUtil from its specific path within the cloned repo to the tools directory and make it executable
+          mv tools/intune-app-utility-repo/macOS/Tools/IntuneAppUtil tools/IntuneAppUtil
           chmod +x tools/IntuneAppUtil
           
           # Clean up the cloned repository
@@ -52,8 +53,6 @@ jobs:
           echo "$MOUNT_OUTPUT"
 
           # Extract the mount point, robustly handling spaces in the volume name
-          # The volume name for Slack DMG is typically just "Slack"
-          # Or it could be derived from the application name within the DMG
           MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | head -n 1 | sed -E 's/.*(\/Volumes\/.*)/\1/')
           echo "Mounted DMG at: $MOUNTPOINT"
 
