@@ -8,18 +8,18 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - name: Install AutoPkg via pip
+      - name: Install AutoPkg with pipx
         run: |
-          python3 -m pip install --upgrade autopkg
+          echo "Installing AutoPkg via pipx"
+          pipx install autopkg
 
       - name: Add AutoPkg recipe repo (community recipes)
         run: |
-          autopkg repo-add https://github.com/autopkg/recipes.git
+          pipx run autopkg repo-add https://github.com/autopkg/recipes.git
 
       - name: Run AutoPkg recipe for Visual Studio Code
         run: |
-          # Run the VSCode pkg recipe from community repo
-          autopkg run visual-studio-code.pkg --verbose
+          pipx run autopkg run visual-studio-code.pkg --verbose
 
       - name: Find generated PKG installer path
         run: |
