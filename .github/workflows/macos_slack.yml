@@ -20,34 +20,44 @@ jobs:
         run: |
           set -eux
           echo "Downloading Microsoft Shell Intune App Utility (IntuneAppUtil) directly..."
-          # Ensure the 'tools' directory exists right before attempting to download into it
-          mkdir -p tools
+          mkdir -p tools # Ensure the 'tools' directory exists right before attempting to download into it
           
           # Corrected URL: changed 'master' to 'main' branch
-          curl -L "https://raw.githubusercontent.com/microsoft/shell-intune-samples/main/macOS/Tools/IntuneAppUtil" -o "$(pwd)/tools/IntuneAppUtil"
+          # Using relative path for output
+          curl -L "https://raw.githubusercontent.com/microsoft/shell-intune-samples/main/macOS/Tools/IntuneAppUtil" -o "tools/IntuneAppUtil"
           
-          # Make the downloaded file executable using its absolute path
-          chmod +x "$(pwd)/tools/IntuneAppUtil"
+          # Make the downloaded file executable using its relative path
+          chmod +x "tools/IntuneAppUtil"
           
           echo "IntuneAppUtil prepared."
 
       - name: Download latest Slack macOS DMG
         run: |
-          set -eux # Added set -eux for this block too
+          set -eux
+          set -o pipefail # Ensure any error in a pipeline causes the script to exit immediately
           echo "Downloading latest Slack DMG..."
-          # Ensure the 'input' directory exists right before attempting to download into it
+          # Ensure the 'input' directory exists immediately before download
           mkdir -p input
+          ls -la # Diagnostic: List contents of current directory
+          ls -la input # Diagnostic: List contents of 'input' directory and its permissions
           
           # Use a direct link to the latest stable Slack DMG
           # This URL is more reliable than the ssb/download-osx redirect
-          # Using an absolute path for the output file.
-          curl -L "https://downloads.slack-edge.com/releases/macos/Slack-latest.dmg" -o "$(pwd)/input/Slack-latest.dmg"
+          # Using a relative path for the output file.
+          # Adding a common User-Agent header to mimic a browser, which can sometimes bypass server-side blocks.
+          curl -L "https://downloads.slack-edge.com/releases/macos/Slack-latest.dmg" \
+            -o "input/Slack-latest.dmg" \
+            -H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36"
+          
           echo "Downloaded Slack DMG to input/Slack-latest.dmg"
-
+          ls -la "input/Slack-latest.dmg" # Diagnostic: Verify file exists and its size
+          file "input/Slack-latest.dmg" # Diagnostic: CRITICAL - Check the actual file type
+          
       - name: Extract Slack.app from DMG and get version
         run: |
           set -eux
-          DMG_PATH="$(pwd)/input/Slack-latest.dmg" # Use absolute path
+          set -o pipefail # Ensure any error in a pipeline causes the script to exit immediately
+          DMG_PATH="input/Slack-latest.dmg" # Use relative path
           APP_NAME="Slack.app" # Expected name of the application bundle inside the DMG
           
           echo "Attaching DMG for Slack.app extraction..."
@@ -82,6 +92,7 @@ jobs:
       - name: Create .intunemac package using IntuneAppUtil
         run: |
           set -eux
+          set -o pipefail # Ensure any error in a pipeline causes the script to exit immediately
           # Run the IntuneAppUtil on the extracted Slack.app
           # Output to the 'output' directory with a versioned name
           ./tools/IntuneAppUtil -c "temp_app_dir" -o "output" -n "Slack-macOS-$SLACK_VERSION.intunemac"
