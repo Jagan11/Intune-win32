@@ -26,7 +26,8 @@ jobs:
           
           echo "Attaching DMG for version check..."
           # Attach the DMG quietly to get its mount point
-          MOUNT_OUTPUT=$(hdiutil attach "$DMG_PATH" -nobrowse -noverify -noquiet)
+          # Removed '-noquiet' as it's not a valid option. '-noquiet' is implicitly handled by -nobrowse for most purposes.
+          MOUNT_OUTPUT=$(hdiutil attach "$DMG_PATH" -nobrowse -noverify)
           echo "hdiutil attach output:"
           echo "$MOUNT_OUTPUT"
 
