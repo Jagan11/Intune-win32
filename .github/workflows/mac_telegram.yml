@@ -1,79 +1,92 @@
-name: Build Telegram Desktop macOS
+name: Package Slack macOS .intunemac
 
 on:
-  workflow_dispatch: # Allows manual triggering of the workflow
+  workflow_dispatch:
 
 jobs:
-  build:
+  package-slack:
     runs-on: macos-latest
-    env:
-      # These are typically set by brew shellenv, but we ensure Qt5's specific paths are prepended
-      # and that Homebrew's bin dir will be consistently in PATH.
-      LDFLAGS: -L/opt/homebrew/opt/qt@5/lib
-      CPPFLAGS: -I/opt/homebrew/opt/qt@5/include
-      PKG_CONFIG_PATH: /opt/homebrew/opt/qt@5/lib/pkgconfig
-
     steps:
-      - name: Checkout repository
+      - name: Create directories
+        run: |
+          mkdir -p input
+          mkdir -p output
+          mkdir -p tools
+          mkdir -p temp_app_dir # Directory to hold the extracted .app
+
+      - name: Checkout repository (for IntuneAppUtil setup)
         uses: actions/checkout@v3
 
-      - name: Install Homebrew and dependencies
+      - name: Download Microsoft Shell Intune App Utility
         run: |
-          set -eux # Exit immediately if a command exits with a non-zero status
+          set -eux
+          echo "Cloning Shell Intune Samples repository to get IntuneAppUtil..."
+          # Corrected repository URL for IntuneAppUtil
+          GIT_TERMINAL_PROMPT=0 git clone --depth 1 https://github.com/microsoft/shell-intune-samples.git tools/intune-app-utility-repo
+          
+          # Move IntuneAppUtil from its specific path within the cloned repo to the tools directory and make it executable
+          # Corrected path: IntuneAppUtil is directly under macOS/Tools
+          mv tools/intune-app-utility-repo/macOS/Tools/IntuneAppUtil tools/IntuneAppUtil
+          chmod +x tools/IntuneAppUtil
+          
+          # Clean up the cloned repository
+          rm -rf tools/intune-app-utility-repo
+          echo "IntuneAppUtil prepared."
 
-          echo "Checking for Homebrew installation..."
-          if ! command -v brew &> /dev/null; then
-            echo "Homebrew not found. Installing Homebrew..."
-            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-            
-            # Evaluate brew shellenv for the current shell and also add it to GITHUB_PATH for subsequent steps
-            echo "Setting Homebrew environment for current and future steps..."
-            eval "$(/opt/homebrew/bin/brew shellenv)"
-            echo "$(/opt/homebrew/bin/brew --prefix)/bin" >> $GITHUB_PATH
-            echo "$(/opt/homebrew/bin/brew --prefix)/sbin" >> $GITHUB_PATH
-          else
-            echo "Homebrew is already installed. Updating Homebrew..."
-            brew update
-            # Ensure Homebrew's path is in GITHUB_PATH even if it was pre-installed
-            echo "$(/opt/homebrew/bin/brew --prefix)/bin" >> $GITHUB_PATH
-            echo "$(/opt/homebrew/bin/brew --prefix)/sbin" >> $GITHUB_PATH
-            eval "$(/opt/homebrew/bin/brew shellenv)" # Also eval for current shell
+      - name: Download latest Slack macOS DMG
+        run: |
+          echo "Downloading latest Slack DMG..."
+          # Use a direct link to the latest stable Slack DMG
+          # This URL is more reliable than the ssb/download-osx redirect
+          curl -L "https://downloads.slack-edge.com/releases/macos/Slack-latest.dmg" -o "input/Slack-latest.dmg"
+          echo "Downloaded Slack DMG to input/Slack-latest.dmg"
+
+      - name: Extract Slack.app from DMG and get version
+        run: |
+          set -eux
+          DMG_PATH="input/Slack-latest.dmg"
+          APP_NAME="Slack.app" # Expected name of the application bundle inside the DMG
+          
+          echo "Attaching DMG for Slack.app extraction..."
+          # Attach the DMG, allowing it to be mounted
+          MOUNT_OUTPUT=$(hdiutil attach "$DMG_PATH" -nobrowse -noverify)
+          echo "hdiutil attach output:"
+          echo "$MOUNT_OUTPUT"
+
+          # Extract the mount point, robustly handling spaces in the volume name
+          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | head -n 1 | sed -E 's/.*(\/Volumes\/.*)/\1/')
+          echo "Mounted DMG at: $MOUNTPOINT"
+
+          if [ -z "$MOUNTPOINT" ]; then
+            echo "Error: Could not find mount point for Slack DMG."
+            exit 1
           fi
 
-          echo "Installing build dependencies: git, qt@5, pkgconf, cmake, ada-url, boost, ffmpeg, minizip, openal-soft..."
-          brew install git qt@5 pkgconf cmake ada-url boost ffmpeg minizip openal-soft || brew upgrade git qt@5 pkgconf cmake ada-url boost ffmpeg minizip openal-soft
+          # Copy the .app bundle to a temporary directory for packaging
+          echo "Copying $APP_NAME from DMG to temporary directory..."
+          cp -R "$MOUNTPOINT/$APP_NAME" "temp_app_dir/$APP_NAME"
+          echo "$APP_NAME copied."
 
-          echo "Dependencies installed successfully."
+          # Read the CFBundleShortVersionString from the copied Slack.app's Info.plist
+          VERSION=$(defaults read "temp_app_dir/$APP_NAME/Contents/Info.plist" CFBundleShortVersionString || echo "unknown")
+          echo "SLACK_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Slack version: $VERSION"
 
-      - name: Clone Telegram Desktop repository
+          echo "Detaching DMG..."
+          hdiutil detach "$MOUNTPOINT" -quiet
+          echo "DMG detached."
+
+      - name: Create .intunemac package using IntuneAppUtil
         run: |
-          echo "Cloning tdesktop repository..."
-          git clone --depth 1 https://github.com/telegramdesktop/tdesktop.git
-          echo "Repository cloned."
+          set -eux
+          # Run the IntuneAppUtil on the extracted Slack.app
+          # Output to the 'output' directory with a versioned name
+          ./tools/IntuneAppUtil -c "temp_app_dir" -o "output" -n "Slack-macOS-$SLACK_VERSION.intunemac"
+          echo "Slack-macOS-$SLACK_VERSION.intunemac created."
 
-      - name: Initialize and Update Submodules
-        run: |
-          echo "Initializing and updating Telegram Desktop submodules..."
-          cd tdesktop
-          git submodule update --init --recursive --depth 1 # --recursive is crucial for nested submodules; --depth 1 keeps submodule clones shallow.
-          echo "Submodules updated."
-
-      - name: Build Telegram Desktop
-        run: |
-          echo "Starting Telegram Desktop build process..."
-          cd tdesktop
-          mkdir -p build
-          cd build
-          # Explicitly set OpenAL_DIR to help CMake find the keg-only Homebrew installation
-          cmake .. \
-            -DCMAKE_PREFIX_PATH=/opt/homebrew/opt/qt@5 \
-            -DOpenAL_DIR=/opt/homebrew/opt/openal-soft/lib/cmake/OpenAL # Point OpenAL_DIR to its CMake config files
-          make -j$(sysctl -n hw.ncpu) # Use all available CPU cores for compilation
-          echo "Telegram Desktop build completed."
-
-      - name: Upload Telegram build artifacts
+      - name: Upload .intunemac artifact
         uses: actions/upload-artifact@v4
         with:
-          name: telegram-macos-build
-          path: tdesktop/build
-          retention-days: 7 # Keep artifact for 7 days
+          name: slack-macos-intunemac
+          path: output/*.intunemac
+          retention-days: 7
