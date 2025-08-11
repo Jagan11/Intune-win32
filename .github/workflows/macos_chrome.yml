@@ -1,0 +1,64 @@
+name: Package Google Chrome macOS DMG
+
+on:
+  workflow_dispatch:
+
+jobs:
+  package-chrome:
+    runs-on: macos-latest
+    steps:
+      - name: Create directories for Chrome packaging
+        run: |
+          mkdir -p output
+
+      - name: Download latest Google Chrome macOS DMG
+        run: |
+          echo "Downloading latest Google Chrome DMG..."
+          # Google Chrome provides a direct download link that redirects to the latest stable DMG.
+          # We use -L to follow redirects.
+          curl -L "https://dl.google.com/chrome/mac/universal/stable/GGRO/googlechrome.dmg" -o "output/GoogleChrome-latest.dmg"
+          echo "Downloaded Google Chrome DMG to output/GoogleChrome-latest.dmg"
+
+      - name: Get Chrome version from DMG
+        run: |
+          set -eux
+          DMG_PATH="output/GoogleChrome-latest.dmg"
+          
+          echo "Attaching DMG for version check..."
+          # Attach the DMG quietly to get its mount point
+          MOUNT_OUTPUT=$(hdiutil attach "$DMG_PATH" -nobrowse -noverify -noquiet)
+          echo "hdiutil attach output:"
+          echo "$MOUNT_OUTPUT"
+
+          # Extract the mount point, robustly handling spaces in the volume name
+          # Chrome typically mounts as "Google Chrome"
+          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | head -n 1 | sed -E 's/.*(\/Volumes\/.*)/\1/')
+          echo "Mounted DMG at: $MOUNTPOINT"
+
+          if [ -z "$MOUNTPOINT" ]; then
+            echo "Error: Could not find mount point for Google Chrome DMG."
+            exit 1
+          fi
+
+          # Read the CFBundleShortVersionString from the Google Chrome.app's Info.plist
+          # The application bundle is typically directly in the mounted volume
+          VERSION=$(defaults read "$MOUNTPOINT/Google Chrome.app/Contents/Info.plist" CFBundleShortVersionString || echo "unknown")
+          echo "CHROME_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Google Chrome version: $VERSION"
+
+          echo "Detaching DMG..."
+          hdiutil detach "$MOUNTPOINT" -quiet
+          echo "DMG detached."
+
+      - name: Rename Chrome DMG with version
+        run: |
+          FINAL_DMG="output/GoogleChrome-macOS-$CHROME_VERSION.dmg"
+          mv "output/GoogleChrome-latest.dmg" "$FINAL_DMG"
+          echo "Renamed DMG to: $FINAL_DMG"
+
+      - name: Upload Chrome DMG as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: google-chrome-macos-dmg
+          path: output/*.dmg
+          retention-days: 7
