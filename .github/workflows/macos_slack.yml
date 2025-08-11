@@ -1,0 +1,63 @@
+name: Package Slack macOS DMG
+
+on:
+  workflow_dispatch:
+
+jobs:
+  slack-macos-dmg:
+    runs-on: macos-latest
+    steps:
+      - name: Create directories
+        run: |
+          mkdir -p output
+
+      - name: Download latest Slack macOS DMG
+        # Slack provides a direct DMG download from their official site
+        # We need to find the latest version dynamically or rely on a static "latest" link
+        # For simplicity, we'll use the static download link for the latest, which usually redirects.
+        run: |
+          curl -L "https://slack.com/ssb/download-osx" -o "output/Slack-latest.dmg"
+          echo "Downloaded Slack DMG to output/Slack-latest.dmg"
+
+      - name: Get Slack version from DMG
+        run: |
+          set -eux
+          DMG_PATH="output/Slack-latest.dmg"
+          VOL_NAME="Slack" # Standard volume name for Slack DMG
+
+          echo "Attaching DMG for version check..."
+          # Attach the DMG quietly to get its mount point
+          MOUNT_OUTPUT=$(hdiutil attach "$DMG_PATH" -nobrowse -noverify)
+          echo "hdiutil attach output:"
+          echo "$MOUNT_OUTPUT"
+
+          # Extract the mount point, robustly handling spaces in the volume name
+          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | sed -E 's/.*(\/Volumes\/.*)/\1/')
+          echo "Mounted DMG at: $MOUNTPOINT"
+
+          if [ -z "$MOUNTPOINT" ]; then
+            echo "Error: Could not find mount point for Slack DMG."
+            exit 1
+          fi
+
+          # Read the CFBundleShortVersionString from the Slack.app's Info.plist
+          VERSION=$(defaults read "$MOUNTPOINT/Slack.app/Contents/Info.plist" CFBundleShortVersionString || echo "unknown")
+          echo "SLACK_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Slack version: $VERSION"
+
+          echo "Detaching DMG..."
+          hdiutil detach "$MOUNTPOINT" -quiet
+          echo "DMG detached."
+
+      - name: Rename Slack DMG with version
+        run: |
+          FINAL_DMG="output/Slack-macOS-$SLACK_VERSION.dmg"
+          mv "output/Slack-latest.dmg" "$FINAL_DMG"
+          echo "Renamed DMG to: $FINAL_DMG"
+
+      - name: Upload Slack DMG as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: slack-macos-dmg
+          path: output/*.dmg
+          retention-days: 7
