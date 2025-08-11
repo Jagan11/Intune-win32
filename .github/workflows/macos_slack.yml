@@ -31,7 +31,7 @@ jobs:
           echo "IntuneAppUtil prepared."
 
       - name: Download latest Slack macOS DMG
-        run: |a
+        run: |
           echo "Downloading latest Slack DMG..."
           # Use a direct link to the latest stable Slack DMG
           # This URL is more reliable than the ssb/download-osx redirect
