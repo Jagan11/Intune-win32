@@ -8,33 +8,31 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - name: Install AutoPkg
+      - name: Install AutoPkg via pip
         run: |
-          brew install autopkg
+          python3 -m pip install --upgrade autopkg
 
-      - name: Set up AutoPkg recipe repo and overrides
+      - name: Add AutoPkg recipe repo (community recipes)
         run: |
-          # You can add community recipe repos here if needed:
           autopkg repo-add https://github.com/autopkg/recipes.git
-
-          # Create override folder for your custom overrides
-          mkdir -p ~/Library/AutoPkg/Overrides
-
-          # Copy or create your custom override recipe in Overrides
-          # For example: override Visual Studio Code recipe to specify version / signing
-          # (You may want to check existing overrides from community)
 
       - name: Run AutoPkg recipe for Visual Studio Code
         run: |
-          # Run the VSCode recipe - replace with your desired recipe
-          autopkg run visual-studio-code.pkg --override-cache
+          # Run the VSCode pkg recipe from community repo
+          autopkg run visual-studio-code.pkg --verbose
 
-      - name: Locate generated pkg files
+      - name: Find generated PKG installer path
         run: |
-          echo "Packages output in ~/Library/AutoPkg/Cache/local.pkg/VisualStudioCode/"
+          PKG_PATH=$(find ~/Library/AutoPkg/Cache/local.pkg/VisualStudioCode/ -name "*.pkg" | head -n 1)
+          echo "PKG_PATH=$PKG_PATH" >> $GITHUB_ENV
+          if [ -z "$PKG_PATH" ]; then
+            echo "Error: PKG file not found in AutoPkg cache!"
+            exit 1
+          fi
+          echo "Found PKG installer at $PKG_PATH"
 
-      - name: Upload packaged PKG artifacts
+      - name: Upload PKG installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vscode-pkg
-          path: ~/Library/AutoPkg/Cache/local.pkg/VisualStudioCode/*.pkg
+          name: vscode-macos-pkg
+          path: ${{ env.PKG_PATH }}
