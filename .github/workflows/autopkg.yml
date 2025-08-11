@@ -1,210 +1,54 @@
-name: AutoPkg to Intune (.intunemac)
+name: Build VSCode .intunemac Package
 
 on:
-  workflow_dispatch: # Allows manual triggering from the GitHub Actions UI
+  workflow_dispatch:
 
 jobs:
-  package-vscode-intunemac:
-    runs-on: macos-latest # AutoPkg and macOS tools require a macOS runner
+  build:
+    runs-on: macos-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3 # Clones your repository to access workflow files and potentially custom processors
+      - name: Checkout repo
+        uses: actions/checkout@v3
 
-      - name: Install Python (needed for AutoPkg)
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x' # AutoPkg is Python-based
+          python-version: "3.x"
 
-      - name: Install AutoPkg
+      - name: Install AutoPkg via pip
         run: |
-          echo "Installing AutoPkg via pip..."
           python3 -m pip install --upgrade pip
-          pip3 install --user 'autopkg>=2.9.2' # Install the latest AutoPkg
-          
-          # Add AutoPkg's user bin directory to PATH for the rest of the job
+          python3 -m pip install --user autopkg
           echo "$(python3 -m site --user-base)/bin" >> $GITHUB_PATH
-          echo "AutoPkg installed. Verifying version:"
           autopkg --version
 
-      - name: Setup AutoPkg Repositories and Processors
+      - name: Add official and custom recipe repos
         run: |
-          echo "Setting up AutoPkg repositories..."
-          autopkg repo add 'https://github.com/autopkg/recipes.git' # Common public recipes
-          autopkg repo add 'https://github.com/autopkg/homebrew.git' # Homebrew recipes (if needed later)
-          
-          echo "Cloning Shell Intune App Utility for IntuneAppUtil processor..."
-          # Clone the repository containing the IntuneAppUtil script
-          git clone https://github.com/microsoft/shell-intune-app-utility.git tools/intune-app-utility-repo
-          
-          # Move IntuneAppUtil to a location where AutoPkg can find it as a processor
-          # AutoPkg looks for custom processors in its recipe search paths or explicit processor directories.
-          # For simplicity here, we'll ensure it's in a known location relative to the workspace.
-          mkdir -p AutoPkg/SharedProcessors
-          mv tools/intune-app-utility-repo/IntuneAppUtil AutoPkg/SharedProcessors/IntuneAppUtil
-          chmod +x AutoPkg/SharedProcessors/IntuneAppUtil
-          
-          echo "IntuneAppUtil moved and made executable. Adding to AutoPkg search path..."
-          # This tells AutoPkg where to find custom processors
-          autopkg_prefs_path="$(autopkg pref-read RECIPE_REPO_DIR)"/com.github.autopkg.intuneprocessors
-          mkdir -p "$autopkg_prefs_path" # Create a dummy folder in a recipe repo path
-          echo "<?xml version='1.0' encoding='UTF-8'?>
-<!DOCTYPE plist PUBLIC '-//Apple//DTD PLIST 1.0//EN' 'http://www.apple.com/DTDs/PropertyList-1.0.dtd'>
-<plist version='1.0'>
-<dict>
-    <key>Processor</key>
-    <string>IntuneAppUtil</string>
-    <key>Arguments</key>
-    <dict>
-        <key>app_path</key>
-        <string>%app_path%</string>
-        <key>output_path</key>
-        <string>%output_path%</string>
-    </dict>
-</dict>
-</plist>" > "$autopkg_prefs_path"/IntuneAppUtil.py # AutoPkg expects .py extension for processors
-          
-          # Symlink the actual IntuneAppUtil executable to the expected path for the processor
-          ln -s "$(pwd)/AutoPkg/SharedProcessors/IntuneAppUtil" "$(autopkg pref-read RECIPE_REPO_DIR)"/com.github.autopkg.intuneprocessors/IntuneAppUtil
-          
-          rm -rf tools/intune-app-utility-repo # Clean up cloned repo
-          
-          echo "Recipe repositories and IntuneAppUtil setup complete."
+          autopkg repo-add https://github.com/autopkg/recipes.git
+          autopkg repo-add ./recipes
 
+      - name: Set environment variable for custom processors
+        run: echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
 
-      - name: Create Custom Intune Recipe for VSCode
+      - name: Run VSCode.intunemac.recipe
+        run: autopkg run VSCode.intunemac.recipe --verbose
+
+      - name: Find and upload .intunemac package as artifact
+        id: find-artifact
         run: |
-          # Create a custom recipe that uses the IntuneAppUtil processor
-          # This recipe assumes VSCode.download.recipe is already available from 'recipes' repo.
-          # We're creating a new .intunemac recipe based on the downloaded app.
-          mkdir -p ~/Library/AutoPkg/RecipeRepos/local/
-          cat > ~/Library/AutoPkg/RecipeRepos/local/VSCode.intunemac.recipe <<'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Description</key>
-    <string>Downloads the latest version of Visual Studio Code and creates an .intunemac package.</string>
-    <key>Identifier</key>
-    <string>com.github.autopkg.intune.vscode</string>
-    <key>Input</key>
-    <dict>
-        <key>NAME</key>
-        <string>Visual Studio Code</string>
-    </dict>
-    <key>ParentRecipe</key>
-    <string>com.github.autopkg.download.vscode</string>
-    <key>MinimumVersion</key>
-    <string>1.0.0</string>
-    <key>Process</key>
-    <array>
-        <dict>
-            <key>Processor</key>
-            <string>Unarchiver</string>
-            <key>Arguments</key>
-            <dict>
-                <key>archive_path</key>
-                <string>%pathname%</string>
-                <key>destination_path</key>
-                <string>%RECIPE_CACHE_DIR%/unpack</string>
-                <key>overwrite</key>
-                <true/>
-            </dict>
-        </dict>
-        <dict>
-            <key>Processor</key>
-            <string>PkgRootCreator</string>
-            <key>Arguments</key>
-            <dict>
-                <key>pkgroot</key>
-                <string>%RECIPE_CACHE_DIR%/pkgroot</string>
-                <key>pkgdirs</key>
-                <dict>
-                    <key>Applications</key>
-                    <string>0775</string>
-                </dict>
-            </dict>
-        </dict>
-        <dict>
-            <key>Processor</key>
-            <string>Copier</string>
-            <key>Arguments</key>
-            <dict>
-                <key>source_path</key>
-                <string>%RECIPE_CACHE_DIR%/unpack/Visual Studio Code.app</string>
-                <key>destination_path</key>
-                <string>%pkgroot%/Applications/Visual Studio Code.app</string>
-                <key>overwrite</key>
-                <true/>
-            </dict>
-        </dict>
-        <dict>
-            <key>Processor</key>
-            <string>AppDmgVersioner</string>
-            <key>Arguments</key>
-            <dict>
-                <key>dmg_path</key>
-                <string>%RECIPE_CACHE_DIR%/%NAME%.dmg</string>
-                <key>app_path</key>
-                <string>%pkgroot%/Applications/Visual Studio Code.app</string>
-            </dict>
-        </dict>
-        <dict>
-            <key>Processor</key>
-            <string>IntuneAppUtil</string>
-            <key>Arguments</key>
-            <dict>
-                <key>app_path</key>
-                <string>%RECIPE_CACHE_DIR%/%NAME%.dmg</string>
-                <key>output_path</key>
-                <string>%RECIPE_CACHE_DIR%/%NAME%-%version%.intunemac</string>
-            </dict>
-        </dict>
-        <!-- The IntuneUploader processor would go here if you configure its secrets -->
-        <!--
-        <dict>
-            <key>Processor</key>
-            <string>IntuneUploader</string>
-            <key>Arguments</key>
-            <dict>
-                <key>intunemac_path</key>
-                <string>%output_path%</string>
-                <key>app_name</key>
-                <string>%NAME%</string>
-                <key>version</key>
-                <string>%version%</string>
-                <key>install_command</key>
-                <string>/usr/local/bin/installer -pkg "%NAME%.pkg" -target /</string>
-                <key>uninstall_command</key>
-                <string>rm -rf /Applications/%NAME%.app</string>
-                <key>detection_rule</key>
-                <string>./Applications/%NAME%.app</string>
-            </dict>
-        </dict>
-        -->
-    </array>
-</dict>
-</plist>
-EOF
-          echo "VSCode.intunemac.recipe created."
-
-      - name: Run AutoPkg Recipe
-        run: |
-          echo "Running AutoPkg recipe for VSCode.intunemac..."
-          autopkg run VSCode.intunemac.recipe --verbose
-          
-          # Find the created .intunemac file
-          INTUNEMAC_FILE=$(find %RECIPE_CACHE_DIR% -name "*.intunemac" | head -n 1)
+          RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
+          echo "RECIPE_CACHE_DIR=$RECIPE_CACHE_DIR"
+          INTUNEMAC_FILE=$(find "$RECIPE_CACHE_DIR" -name "*.intunemac" | head -n 1)
           if [ -z "$INTUNEMAC_FILE" ]; then
-            echo "Error: No .intunemac file was found after AutoPkg run."
+            echo "No .intunemac file found!"
             exit 1
           fi
           echo "INTUNEMAC_FILE=$INTUNEMAC_FILE" >> $GITHUB_ENV
-          echo "Generated .intunemac file: $INTUNEMAC_FILE"
 
-      - name: Upload .intunemac Artifact
+      - name: Upload .intunemac artifact
         uses: actions/upload-artifact@v4
         with:
           name: vscode-intunemac
-          path: "${{ env.INTUNEMAC_FILE }}"
+          path: ${{ env.INTUNEMAC_FILE }}
           retention-days: 7
