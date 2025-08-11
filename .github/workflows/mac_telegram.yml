@@ -1,0 +1,27 @@
+name: MacOS Build Telegram Desktop
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install dependencies and build
+        run: |
+          # install required packages with Homebrew or other
+          brew install qt5 pkg-config
+          # then follow Telegram build instructions, e.g.
+          ./configure
+          make
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: telegram-macos-app
+          path: path/to/build/output
