@@ -63,7 +63,7 @@ jobs:
           mv tools/intune-app-utility-repo/IntuneAppUtil "$PROCESSOR_DIR/IntuneAppUtil"
           chmod +x "$PROCESSOR_DIR/IntuneAppUtil"
 
-          # Create processor plist definition (HEREDOC must have no indent on EOF)
+          # Notice: NO indentation before EOF -- critical for YAML parsing!
           cat > "$PROCESSOR_DIR/IntuneAppUtil.py" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
