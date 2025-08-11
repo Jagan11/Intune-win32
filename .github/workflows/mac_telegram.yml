@@ -1,7 +1,7 @@
 name: Build Telegram Desktop macOS
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Allows manual triggering of the workflow
 
 jobs:
   build:
@@ -41,7 +41,6 @@ jobs:
           fi
 
           echo "Installing build dependencies: git, qt@5, pkgconf, cmake, ada-url, boost, ffmpeg, minizip, openal-soft..."
-          # Added 'minizip' and 'openal-soft' to the brew install command
           brew install git qt@5 pkgconf cmake ada-url boost ffmpeg minizip openal-soft || brew upgrade git qt@5 pkgconf cmake ada-url boost ffmpeg minizip openal-soft
 
           echo "Dependencies installed successfully."
@@ -56,9 +55,7 @@ jobs:
         run: |
           echo "Initializing and updating Telegram Desktop submodules..."
           cd tdesktop
-          # --recursive is crucial for nested submodules
-          # --depth 1 keeps submodule clones shallow, similar to main repo
-          git submodule update --init --recursive --depth 1
+          git submodule update --init --recursive --depth 1 # --recursive is crucial for nested submodules; --depth 1 keeps submodule clones shallow.
           echo "Submodules updated."
 
       - name: Build Telegram Desktop
@@ -67,11 +64,14 @@ jobs:
           cd tdesktop
           mkdir -p build
           cd build
-          cmake .. -DCMAKE_PREFIX_PATH=/opt/homebrew/opt/qt@5
+          # Explicitly set OpenAL_DIR to help CMake find the keg-only Homebrew installation
+          cmake .. \
+            -DCMAKE_PREFIX_PATH=/opt/homebrew/opt/qt@5 \
+            -DOpenAL_DIR=/opt/homebrew/opt/openal-soft/lib/cmake/OpenAL # Point OpenAL_DIR to its CMake config files
           make -j$(sysctl -n hw.ncpu) # Use all available CPU cores for compilation
           echo "Telegram Desktop build completed."
 
-      - name: Upload build artifacts
+      - name: Upload Telegram build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: telegram-macos-build
