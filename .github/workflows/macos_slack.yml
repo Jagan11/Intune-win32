@@ -7,9 +7,8 @@ jobs:
   package-slack:
     runs-on: macos-latest
     steps:
-      - name: Create directories
+      - name: Create base directories
         run: |
-          mkdir -p input
           mkdir -p output
           mkdir -p tools
           mkdir -p temp_app_dir # Directory to hold the extracted .app
@@ -34,16 +33,21 @@ jobs:
 
       - name: Download latest Slack macOS DMG
         run: |
+          set -eux # Added set -eux for this block too
           echo "Downloading latest Slack DMG..."
+          # Ensure the 'input' directory exists right before attempting to download into it
+          mkdir -p input
+          
           # Use a direct link to the latest stable Slack DMG
           # This URL is more reliable than the ssb/download-osx redirect
-          curl -L "https://downloads.slack-edge.com/releases/macos/Slack-latest.dmg" -o "input/Slack-latest.dmg"
+          # Using an absolute path for the output file.
+          curl -L "https://downloads.slack-edge.com/releases/macos/Slack-latest.dmg" -o "$(pwd)/input/Slack-latest.dmg"
           echo "Downloaded Slack DMG to input/Slack-latest.dmg"
 
       - name: Extract Slack.app from DMG and get version
         run: |
           set -eux
-          DMG_PATH="input/Slack-latest.dmg"
+          DMG_PATH="$(pwd)/input/Slack-latest.dmg" # Use absolute path
           APP_NAME="Slack.app" # Expected name of the application bundle inside the DMG
           
           echo "Attaching DMG for Slack.app extraction..."
