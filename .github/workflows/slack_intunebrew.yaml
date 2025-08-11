@@ -43,4 +43,7 @@ jobs:
             --bundle-id "com.tinyspeck.slackmacgap"
 
       - name: Upload packaged app artifact
-        uses:
+        uses: actions/upload-artifact@v4
+        with:
+          name: slack-intunemac-package
+          path: ./Slack.intunemac
