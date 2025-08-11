@@ -10,25 +10,18 @@ jobs:
   build:
     runs-on: macos-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
       
-      - name: Install dependencies
+      - name: Install dependencies and build
         run: |
-          brew update
-          brew install qt@5 pkg-config cmake ninja
-
-      - name: Build Telegram Desktop
-        run: |
-          # Assuming you are in the Telegram repo root
-          # Example: Configure and build with CMake and Ninja
-          mkdir -p build
-          cd build
-          cmake -G Ninja -DCMAKE_PREFIX_PATH=$(brew --prefix qt@5) ..
-          ninja
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v3
+          # install required packages with Homebrew or other
+          brew install qt5 pkg-config
+          # then follow Telegram build instructions, e.g.
+          ./configure
+          make
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
           name: telegram-macos-app
-          path: build/Telegram.app
+          path: path/to/build/output
