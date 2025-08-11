@@ -449,4 +449,50 @@ jobs:
           Write-Host "Downloaded TelegramSetup.exe to input\"
 
       - name: Download IntuneWinAppUtil.exe
-        # Us
+        # Using Invoke-WebRequest for consistency and reliability
+        shell: pwsh # Explicitly use PowerShell
+        run: |
+          # Clone the repository to reliably get IntuneWinAppUtil.exe
+          Write-Host "Cloning Microsoft-Win32-Content-Prep-Tool repository..."
+          git clone https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool.git tools\intunewin-prep-tool-repo
+
+          # Move the executable to the tools directory
+          Write-Host "Moving IntuneWinAppUtil.exe to tools\"
+          Move-Item -Path "tools\intunewin-prep-tool-repo\IntuneWinAppUtil.exe" -Destination "tools\IntuneWinAppUtil.exe" -Force
+
+          # Clean up the cloned repository
+          Remove-Item -Recurse -Force "tools\intunewin-prep-tool-repo"
+          Write-Host "IntuneWinAppUtil.exe downloaded and prepared."
+
+      - name: Get Telegram Installer Version
+        shell: pwsh
+        run: |
+          $version = (Get-Item "input\TelegramSetup.exe").VersionInfo.FileVersion
+          echo "TELEGRAM_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Telegram Installer Version: $version"
+
+      - name: Wrap Telegram Installer into .intunewin
+        shell: pwsh
+        run: |
+          & "tools\IntuneWinAppUtil.exe" -c "input" -s "TelegramSetup.exe" -o "output" -q
+          
+          # IntuneWinAppUtil.exe names the output file based on the -s argument's basename
+          $sourceFileBaseName = [System.IO.Path]::GetFileNameWithoutExtension("TelegramSetup.exe")
+          $initialIntuneWinFileName = "$sourceFileBaseName.intunewin"
+          $originalFilePath = Join-Path "output" $initialIntuneWinFileName
+
+          if (Test-Path $originalFilePath) {
+            $newName = "Telegram-Windows-$env:TELEGRAM_VERSION.intunewin"
+            Move-Item -Path $originalFilePath -Destination (Join-Path "output" $newName) -Force
+            Write-Host "Renamed '$originalFilePath' to '$newName'"
+          } else {
+            Write-Error "Failed to find the generated .intunewin file at '$originalFilePath' after packaging."
+            exit 1
+          }
+
+      - name: Upload .intunewin Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: telegram-windows-intunewin
+          path: output/*.intunewin
+          retention-days: 7
