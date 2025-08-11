@@ -1,53 +1,40 @@
-name: Build VSCode .intunemac Package
+name: Build Slack & Telegram .intunewin for Intune
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: windows-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Download and install AutoPkg (latest)
+      - name: Download Slack installer
         run: |
-          PKG_URL=$(curl -s https://api.github.com/repos/autopkg/autopkg/releases/latest \
-            | grep browser_download_url \
-            | grep '\.pkg' \
-            | cut -d '"' -f 4)
-          echo "Downloading AutoPkg from $PKG_URL"
-          curl -L -o autopkg.pkg "$PKG_URL"
-          sudo installer -pkg autopkg.pkg -target /
-          autopkg --version
+          Invoke-WebRequest -Uri "https://downloads.slack-edge.com/releases_x64/SlackSetup.exe" -OutFile "SlackSetup.exe"
 
-      - name: Add AutoPkg recipe repos
+      - name: Download Telegram installer
         run: |
-          autopkg repo-add https://github.com/autopkg/recipes.git
-          autopkg repo-add ./recipes
+          Invoke-WebRequest -Uri "https://telegram.org/dl/desktop/win64" -OutFile "TelegramSetup.exe"
 
-      - name: Set environment variable for custom processors
-        run: echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
-
-      - name: Run VSCode.intunemac.recipe
-        run: autopkg run VSCode.intunemac.recipe --verbose
-
-      - name: Find and upload .intunemac artifact
-        id: find-artifact
+      - name: Download Microsoft Win32 Content Prep Tool
         run: |
-          RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
-          echo "RECIPE_CACHE_DIR=$RECIPE_CACHE_DIR"
-          INTUNEMAC_FILE=$(find "$RECIPE_CACHE_DIR" -name "*.intunemac" | head -n 1)
-          if [ -z "$INTUNEMAC_FILE" ]; then
-            echo "No .intunemac file found!"
-            exit 1
-          fi
-          echo "INTUNEMAC_FILE=$INTUNEMAC_FILE" >> $GITHUB_ENV
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/releases/latest/download/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
 
-      - name: Upload .intunemac artifact
+      - name: Wrap Slack installer
+        run: |
+          .\IntuneWinAppUtil.exe -c . -s SlackSetup.exe -o . -q
+
+      - name: Wrap Telegram installer
+        run: |
+          .\IntuneWinAppUtil.exe -c . -s TelegramSetup.exe -o . -q
+
+      - name: Upload .intunewin artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: vscode-intunemac
-          path: ${{ env.INTUNEMAC_FILE }}
+          name: slack-telegram-intunewin
+          path: |
+            *.intunewin
           retention-days: 7
