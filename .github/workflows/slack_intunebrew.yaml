@@ -1,9 +1,9 @@
 name: Package macOS App for Intune
 
 on:
-  push:
-    branches:
-      - main
+  # push:
+  #   branches:
+  #     - main
   workflow_dispatch:
 
 jobs:
@@ -11,24 +11,27 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install IntuneBrew CLI
         run: |
-          # Example: download or install intunebrew cli
-          brew install intunebrew  # if available via brew
+          brew install intunebrew
 
-      - name: Package macOS app for Intune
+      - name: Download Slack DMG
+        run: |
+          curl -L -o Slack.dmg "https://downloads.slack-edge.com/releases/macos/Slack-4.41.150-macOS.dmg"
+
+      - name: Package Slack as .intunemac
         run: |
           intunebrew package \
-            --source ./installers/MyAppInstaller.dmg \
-            --output ./build/MyApp.intunemac \
-            --app-name "My App" \
-            --app-version "1.2.3" \
-            --bundle-id "com.mycompany.myapp"
+            --source ./Slack.dmg \
+            --output ./Slack.intunemac \
+            --app-name "Slack" \
+            --app-version "4.41.150" \
+            --bundle-id "com.tinyspeck.slackmacgap"
 
       - name: Upload packaged app artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: intune-mac-package
-          path: ./build/MyApp.intunemac
+          name: slack-intunemac-package
+          path: ./Slack.intunemac
