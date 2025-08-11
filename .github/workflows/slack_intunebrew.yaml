@@ -1,0 +1,34 @@
+name: Package macOS App for Intune
+
+on:
+  workflow_dispatch:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-package:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install IntuneBrew CLI
+        run: |
+          # Example: download or install intunebrew cli
+          brew install intunebrew  # if available via brew
+
+      - name: Package macOS app for Intune
+        run: |
+          intunebrew package \
+            --source ./installers/MyAppInstaller.dmg \
+            --output ./build/MyApp.intunemac \
+            --app-name "My App" \
+            --app-version "1.2.3" \
+            --bundle-id "com.mycompany.myapp"
+
+      - name: Upload packaged app artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: intune-mac-package
+          path: ./build/MyApp.intunemac
