@@ -1,0 +1,48 @@
+name: Build Microsoft Edge .intunemac Package
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-edge-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install AutoPkg
+        run: |
+          curl -L -o autopkg.pkg https://github.com/autopkg/autopkg/releases/latest/download/AutoPkg-2.7.5.pkg
+          sudo installer -pkg autopkg.pkg -target /
+          autopkg --version
+
+      - name: Add AutoPkg recipe repos
+        run: |
+          autopkg repo-add https://github.com/autopkg/recipes.git
+          autopkg repo-add ./recipes
+
+      - name: Set AutoPkg processor path
+        run: echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
+
+      - name: Run MicrosoftEdge.intunemac.recipe
+        run: autopkg run MicrosoftEdge.intunemac.recipe --verbose
+
+      - name: Find and upload .intunemac artifact
+        id: find-artifact
+        run: |
+          RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
+          echo "RECIPE_CACHE_DIR=$RECIPE_CACHE_DIR"
+          INTUNEMAC_FILE=$(find "$RECIPE_CACHE_DIR" -name "*.intunemac" | head -n 1)
+          if [ -z "$INTUNEMAC_FILE" ]; then
+            echo "No .intunemac file found!"
+            exit 1
+          fi
+          echo "INTUNEMAC_FILE=$INTUNEMAC_FILE" >> $GITHUB_ENV
+
+      - name: Upload .intunemac artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: microsoft-edge-intunemac
+          path: ${{ env.INTUNEMAC_FILE }}
+          retention-days: 7
