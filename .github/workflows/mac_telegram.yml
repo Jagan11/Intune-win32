@@ -1,4 +1,4 @@
-name: MacOS Build Telegram Desktop
+name: Build Telegram Desktop macOS
 
 on:
   push:
@@ -9,19 +9,38 @@ on:
 jobs:
   build:
     runs-on: macos-latest
+
     steps:
-      - uses: actions/checkout@v3
-      
-      - name: Install dependencies and build
+      - name: Checkout workflow repo
+        uses: actions/checkout@v3
+
+      - name: Clone Telegram Desktop repo
         run: |
-          # install required packages with Homebrew or other
-          brew install qt5 pkg-config
-          # then follow Telegram build instructions, e.g.
+          git clone --depth 1 https://github.com/telegramdesktop/tdesktop.git
+
+      - name: Install dependencies with Homebrew
+        run: |
+          brew install qt@5 pkg-config
+          # Set env for keg-only qt@5
+          echo 'export PATH="/opt/homebrew/opt/qt@5/bin:$PATH"' >> $GITHUB_ENV
+          echo 'export LDFLAGS="-L/opt/homebrew/opt/qt@5/lib"' >> $GITHUB_ENV
+          echo 'export CPPFLAGS="-I/opt/homebrew/opt/qt@5/include"' >> $GITHUB_ENV
+          echo 'export PKG_CONFIG_PATH="/opt/homebrew/opt/qt@5/lib/pkgconfig"' >> $GITHUB_ENV
+
+      - name: Build Telegram Desktop
+        shell: bash
+        env:
+          PATH: /opt/homebrew/opt/qt@5/bin:${{ env.PATH }}
+          LDFLAGS: -L/opt/homebrew/opt/qt@5/lib
+          CPPFLAGS: -I/opt/homebrew/opt/qt@5/include
+          PKG_CONFIG_PATH: /opt/homebrew/opt/qt@5/lib/pkgconfig
+        run: |
+          cd tdesktop
           ./configure
-          make
-      
-      - name: Upload artifacts
+          make -j$(sysctl -n hw.ncpu)
+
+      - name: Upload Telegram app artifact
         uses: actions/upload-artifact@v4
         with:
           name: telegram-macos-app
-          path: path/to/build/output
+          path: tdesktop/bin/Telegram.app
