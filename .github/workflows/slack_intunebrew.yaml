@@ -23,7 +23,7 @@ jobs:
 
       - name: Build IntuneBrew CLI
         run: |
-          cd IntuneBrew
+          cd IntuneBrew/cmd/intunebrew
           GO111MODULE=off go build -o intunebrew
           chmod +x intunebrew
           sudo mv intunebrew /usr/local/bin/
@@ -43,7 +43,4 @@ jobs:
             --bundle-id "com.tinyspeck.slackmacgap"
 
       - name: Upload packaged app artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: slack-intunemac-package
-          path: ./Slack.intunemac
+        uses:
