@@ -1,503 +1,71 @@
-name: Package Windows Apps as IntuneWin latest release
+name: Build VSCode & Homebrew .intunemac Packages
 
 on:
-  workflow_dispatch: # Allows manual triggering of the workflow
+  workflow_dispatch:
 
 jobs:
-  # Job for Visual Studio Code
-  vscode:
-    runs-on: windows-latest
+  build:
+    runs-on: macos-latest
+
     steps:
-      - name: Create directories
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Download and install AutoPkg
         run: |
-          New-Item -Path input -ItemType Directory -Force
-          New-Item -Path output -ItemType Directory -Force
-          New-Item -Path tools -ItemType Directory -Force # Ensure tools dir exists
+          curl -L -o autopkg.pkg https://github.com/autopkg/autopkg/releases/latest/download/AutoPkg-2.7.5.pkg
+          sudo installer -pkg autopkg.pkg -target /
+          autopkg --version
 
-      - name: Download latest VSCode x64 User Installer
-        shell: pwsh
+      - name: Add AutoPkg recipe repos
         run: |
-          $downloadUrl = "https://update.code.visualstudio.com/latest/win32-x64-user/stable"
-          Write-Host "Downloading VSCode from: $downloadUrl"
-          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\VSCodeSetup.exe"
+          autopkg repo-add https://github.com/autopkg/recipes.git
+          autopkg repo-add https://github.com/autopkg/gerardkok-recipes.git
+          if [ -d "./recipes" ]; then
+            autopkg repo-add ./recipes
+          fi
 
-      - name: Get VSCode installer version and set as environment variable
-        shell: pwsh
+      - name: Set environment variable for custom processors
+        run: echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
+
+      - name: Run VSCode .intunemac recipe
+        run: autopkg run VSCode.intunemac.recipe --verbose
+
+      - name: Run Homebrew .intunemac recipe
+        run: autopkg run Homebrew.intunemac.recipe --verbose
+
+      - name: Find and upload VSCode .intunemac artifact
+        id: find-vscode
         run: |
-          $version = (Get-Item "input\VSCodeSetup.exe").VersionInfo.ProductVersion
-          Write-Host "VSCode installer version: $version"
-          echo "VSCODE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Download Microsoft Win32 Content Prep Tool
-        shell: pwsh
-        run: |
-          # Clone the repository to reliably get IntuneWinAppUtil.exe
-          Write-Host "Cloning Microsoft-Win32-Content-Prep-Tool repository..."
-          git clone https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool.git tools\intunewin-prep-tool-repo
-
-          # Move the executable to the tools directory
-          Write-Host "Moving IntuneWinAppUtil.exe to tools\"
-          Move-Item -Path "tools\intunewin-prep-tool-repo\IntuneWinAppUtil.exe" -Destination "tools\IntuneWinAppUtil.exe" -Force
-
-          # Clean up the cloned repository
-          Remove-Item -Recurse -Force "tools\intunewin-prep-tool-repo"
-          Write-Host "IntuneWinAppUtil.exe downloaded and prepared."
-
-      - name: Package VSCode using IntuneWinAppUtil
-        shell: pwsh
-        run: |
-          & "tools\IntuneWinAppUtil.exe" -c ".\input" -s "VSCodeSetup.exe" -o ".\output" -q
-
-          # IntuneWinAppUtil.exe names the output file based on the -s argument's basename
-          $sourceFileBaseName = [System.IO.Path]::GetFileNameWithoutExtension("VSCodeSetup.exe")
-          $initialIntuneWinFileName = "$sourceFileBaseName.intunewin"
-          $originalFilePath = Join-Path "output" $initialIntuneWinFileName
-
-          if (Test-Path $originalFilePath) {
-            $newName = "VSCode-win-x64-$env:VSCODE_VERSION.intunewin"
-            Move-Item -Path $originalFilePath -Destination (Join-Path "output" $newName) -Force
-            Write-Host "Renamed '$originalFilePath' to '$newName'"
-          } else {
-            Write-Error "Failed to find the generated .intunewin file at '$originalFilePath' after packaging."
+          RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
+          VSCODE_FILE=$(find "$RECIPE_CACHE_DIR" -name "VSCode*.intunemac" | head -n 1)
+          if [ -z "$VSCODE_FILE" ]; then
+            echo "No VSCode .intunemac file found!"
             exit 1
-          }
+          fi
+          echo "VSCODE_FILE=$VSCODE_FILE" >> $GITHUB_ENV
 
-      - name: Upload VSCode package as artifact
+      - name: Upload VSCode artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vscode-intunewin
-          path: output/*.intunewin
+          name: vscode-intunemac
+          path: ${{ env.VSCODE_FILE }}
           retention-days: 7
 
-  # Job for Google Chrome
-  chrome:
-    runs-on: windows-latest
-    steps:
-      - name: Create directories
+      - name: Find and upload Homebrew .intunemac artifact
+        id: find-homebrew
         run: |
-          New-Item -Path input -ItemType Directory -Force
-          New-Item -Path output -ItemType Directory -Force
-          New-Item -Path tools -ItemType Directory -Force # Ensure tools dir exists
-
-      - name: Download latest Chrome stable x64 Standalone Installer
-        shell: pwsh
-        run: |
-          $downloadUrl = "https://dl.google.com/chrome/install/latest/chrome_installer.exe"
-          Write-Host "Downloading Chrome from: $downloadUrl"
-          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\ChromeSetup.exe"
-
-      - name: Get Google Chrome installer version and set as environment variable
-        shell: pwsh
-        run: |
-          $version = (Get-Item "input\ChromeSetup.exe").VersionInfo.ProductVersion
-          Write-Host "Google Chrome installer version: $version"
-          echo "CHROME_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Download Microsoft Win32 Content Prep Tool
-        shell: pwsh
-        run: |
-          # Clone the repository to reliably get IntuneWinAppUtil.exe
-          Write-Host "Cloning Microsoft-Win32-Content-Prep-Tool repository..."
-          git clone https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool.git tools\intunewin-prep-tool-repo
-
-          # Move the executable to the tools directory
-          Write-Host "Moving IntuneWinAppUtil.exe to tools\"
-          Move-Item -Path "tools\intunewin-prep-tool-repo\IntuneWinAppUtil.exe" -Destination "tools\IntuneWinAppUtil.exe" -Force
-
-          # Clean up the cloned repository
-          Remove-Item -Recurse -Force "tools\intunewin-prep-tool-repo"
-          Write-Host "IntuneWinAppUtil.exe downloaded and prepared."
-
-      - name: Package Chrome using IntuneWinAppUtil
-        shell: pwsh
-        run: |
-          & "tools\IntuneWinAppUtil.exe" -c ".\input" -s "ChromeSetup.exe" -o ".\output" -q
-
-          # IntuneWinAppUtil.exe names the output file based on the -s argument's basename
-          $sourceFileBaseName = [System.IO.Path]::GetFileNameWithoutExtension("ChromeSetup.exe")
-          $initialIntuneWinFileName = "$sourceFileBaseName.intunewin"
-          $originalFilePath = Join-Path "output" $initialIntuneWinFileName
-
-          if (Test-Path $originalFilePath) {
-            $newName = "GoogleChrome-win-x64-$env:CHROME_VERSION.intunewin"
-            Move-Item -Path $originalFilePath -Destination (Join-Path "output" $newName) -Force
-            Write-Host "Renamed '$originalFilePath' to '$newName'"
-          } else {
-            Write-Error "Failed to find the generated .intunewin file at '$originalFilePath' after packaging."
+          RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
+          HOMEBREW_FILE=$(find "$RECIPE_CACHE_DIR" -name "Homebrew*.intunemac" | head -n 1)
+          if [ -z "$HOMEBREW_FILE" ]; then
+            echo "No Homebrew .intunemac file found!"
             exit 1
-          }
+          fi
+          echo "HOMEBREW_FILE=$HOMEBREW_FILE" >> $GITHUB_ENV
 
-      - name: Upload Chrome package as artifact
+      - name: Upload Homebrew artifact
         uses: actions/upload-artifact@v4
         with:
-          name: chrome-intunewin
-          path: output/*.intunewin
-          retention-days: 7
-
-  # Job for Microsoft Edge
-  edge:
-    runs-on: windows-latest
-    steps:
-      - name: Create directories
-        run: |
-          New-Item -Path input -ItemType Directory -Force
-          New-Item -Path output -ItemType Directory -Force
-          New-Item -Path tools -ItemType Directory -Force # Ensure tools dir exists
-
-      - name: Download Microsoft Edge Installer
-        shell: pwsh
-        run: |
-          $downloadUrl = "https://go.microsoft.com/fwlink/?LinkID=2093437" # Stable Edge x64 MSI
-          Write-Host "Downloading Microsoft Edge installer from: $downloadUrl"
-          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\EdgeSetup.msi"
-
-      - name: Get Microsoft Edge installer version and set as environment variable
-        shell: pwsh
-        run: |
-          $version = (Get-Item "input\EdgeSetup.msi").VersionInfo.ProductVersion
-          Write-Host "Microsoft Edge installer version: $version"
-          echo "EDGE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Download Microsoft Win32 Content Prep Tool
-        shell: pwsh
-        run: |
-          # Clone the repository to reliably get IntuneWinAppUtil.exe
-          Write-Host "Cloning Microsoft-Win32-Content-Prep-Tool repository..."
-          git clone https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool.git tools\intunewin-prep-tool-repo
-
-          # Move the executable to the tools directory
-          Write-Host "Moving IntuneWinAppUtil.exe to tools\"
-          Move-Item -Path "tools\intunewin-prep-tool-repo\IntuneWinAppUtil.exe" -Destination "tools\IntuneWinAppUtil.exe" -Force
-
-          # Clean up the cloned repository
-          Remove-Item -Recurse -Force "tools\intunewin-prep-tool-repo"
-          Write-Host "IntuneWinAppUtil.exe downloaded and prepared."
-
-      - name: Package Edge using IntuneWinAppUtil
-        shell: pwsh
-        run: |
-          & "tools\IntuneWinAppUtil.exe" -c ".\input" -s "EdgeSetup.msi" -o ".\output" -q
-
-          # IntuneWinAppUtil.exe names the output file based on the -s argument's basename
-          $sourceFileBaseName = [System.IO.Path]::GetFileNameWithoutExtension("EdgeSetup.msi")
-          $initialIntuneWinFileName = "$sourceFileBaseName.intunewin"
-          $originalFilePath = Join-Path "output" $initialIntuneWinFileName
-
-          if (Test-Path $originalFilePath) {
-            $newName = "MicrosoftEdge-win-x64-$env:EDGE_VERSION.intunewin"
-            Move-Item -Path $originalFilePath -Destination (Join-Path "output" $newName) -Force
-            Write-Host "Renamed '$originalFilePath' to '$newName'"
-          } else {
-            Write-Error "Failed to find the generated .intunewin file at '$originalFilePath' after packaging."
-            exit 1
-          }
-
-      - name: Upload Edge package as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: edge-intunewin
-          path: output/*.intunewin
-          retention-days: 7
-
-  # Job for Node.js
-  nodejs:
-    runs-on: windows-latest
-    steps:
-      - name: Create directories
-        run: |
-          New-Item -Path input -ItemType Directory -Force
-          New-Item -Path output -ItemType Directory -Force
-          New-Item -Path tools -ItemType Directory -Force # Ensure tools dir exists
-
-      - name: Get latest Node.js LTS version and download MSI
-        shell: pwsh
-        run: |
-          $nodeIndex = Invoke-RestMethod -Uri "https://nodejs.org/dist/index.json"
-          # Find the latest LTS release that also includes an 'msi' file for 'x64'
-          $ltsRelease = $nodeIndex | Where-Object { $_.lts -ne $null -and $_.files -contains "x64" -and $_.files -contains "msi" } | Select-Object -First 1
-          
-          if ($null -eq $ltsRelease) {
-              Write-Error "Could not determine latest LTS Node.js version with 'msi' and 'x64' files."
-              exit 1
-          }
-
-          $version = $ltsRelease.version.TrimStart('v')
-          $downloadUrl = "https://nodejs.org/dist/v$version/node-v$version-x64.msi"
-          Write-Host "Downloading Node.js LTS version: $version from: $downloadUrl"
-          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\NodeSetup.msi"
-
-      - name: Get Node.js installer version and set as environment variable
-        shell: pwsh
-        run: |
-          $version = (Get-Item "input\NodeSetup.msi").VersionInfo.ProductVersion
-          Write-Host "Node.js installer version: $version"
-          echo "NODEJS_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Download Microsoft Win32 Content Prep Tool
-        shell: pwsh
-        run: |
-          # Clone the repository to reliably get IntuneWinAppUtil.exe
-          Write-Host "Cloning Microsoft-Win32-Content-Prep-Tool repository..."
-          git clone https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool.git tools\intunewin-prep-tool-repo
-
-          # Move the executable to the tools directory
-          Write-Host "Moving IntuneWinAppUtil.exe to tools\"
-          Move-Item -Path "tools\intunewin-prep-tool-repo\IntuneWinAppUtil.exe" -Destination "tools\IntuneWinAppUtil.exe" -Force
-
-          # Clean up the cloned repository
-          Remove-Item -Recurse -Force "tools\intunewin-prep-tool-repo"
-          Write-Host "IntuneWinAppUtil.exe downloaded and prepared."
-
-      - name: Package Node.js using IntuneWinAppUtil
-        shell: pwsh
-        run: |
-          & "tools\IntuneWinAppUtil.exe" -c ".\input" -s "NodeSetup.msi" -o ".\output" -q
-
-          # IntuneWinAppUtil.exe names the output file based on the -s argument's basename
-          $sourceFileBaseName = [System.IO.Path]::GetFileNameWithoutExtension("NodeSetup.msi")
-          $initialIntuneWinFileName = "$sourceFileBaseName.intunewin"
-          $originalFilePath = Join-Path "output" $initialIntuneWinFileName
-
-          if (Test-Path $originalFilePath) {
-            $newName = "Node.js-win-x64-$env:NODEJS_VERSION.intunewin"
-            Move-Item -Path $originalFilePath -Destination (Join-Path "output" $newName) -Force
-            Write-Host "Renamed '$originalFilePath' to '$newName'"
-          } else {
-            Write-Error "Failed to find the generated .intunewin file at '$originalFilePath' after packaging."
-            exit 1
-          }
-
-      - name: Upload Node.js package as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: nodejs-intunewin
-          path: output/*.intunewin
-          retention-days: 7
-
-  # Job for Git for Windows
-  git:
-    runs-on: windows-latest
-    steps:
-      - name: Create directories
-        run: |
-          New-Item -Path input -ItemType Directory -Force
-          New-Item -Path output -ItemType Directory -Force
-          New-Item -Path tools -ItemType Directory -Force # Ensure tools dir exists
-
-      - name: Get latest Git for Windows installer URL and download
-        shell: pwsh
-        run: |
-          $apiUrl = "https://api.github.com/repos/git-for-windows/git/releases/latest"
-          $response = Invoke-RestMethod -Uri $apiUrl
-
-          $asset = $response.assets | Where-Object { $_.name -like "*64-bit.exe" -and $_.name -notlike "*portable*" } | Select-Object -First 1
-
-          if ($null -eq $asset) {
-              Write-Error "Could not find a suitable 64-bit Git for Windows installer asset."
-              exit 1
-          }
-
-          $downloadUrl = $asset.browser_download_url
-          $installerFileName = $asset.name
-          Write-Host "Downloading Git for Windows from: $downloadUrl"
-          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\$installerFileName"
-
-          echo "GIT_INSTALLER_FILENAME=$installerFileName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Get Git for Windows installer version and set as environment variable
-        shell: pwsh
-        run: |
-          $installerPath = "input\$env:GIT_INSTALLER_FILENAME"
-          $version = (Get-Item $installerPath).VersionInfo.ProductVersion
-          Write-Host "Git for Windows installer version: $version"
-          echo "GIT_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Download Microsoft Win32 Content Prep Tool
-        shell: pwsh
-        run: |
-          # Clone the repository to reliably get IntuneWinAppUtil.exe
-          Write-Host "Cloning Microsoft-Win32-Content-Prep-Tool repository..."
-          git clone https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool.git tools\intunewin-prep-tool-repo
-
-          # Move the executable to the tools directory
-          Write-Host "Moving IntuneWinAppUtil.exe to tools\"
-          Move-Item -Path "tools\intunewin-prep-tool-repo\IntuneWinAppUtil.exe" -Destination "tools\IntuneWinAppUtil.exe" -Force
-
-          # Clean up the cloned repository
-          Remove-Item -Recurse -Force "tools\intunewin-prep-tool-repo"
-          Write-Host "IntuneWinAppUtil.exe downloaded and prepared."
-
-      - name: Package Git for Windows using IntuneWinAppUtil
-        shell: pwsh
-        run: |
-          $installerFileName = "$env:GIT_INSTALLER_FILENAME"
-          & "tools\IntuneWinAppUtil.exe" -c ".\input" -s "$installerFileName" -o ".\output" -q
-
-          $originalFileName = Get-ChildItem -Path "output" -Filter "*.intunewin" | Select-Object -ExpandProperty FullName
-          if ($originalFileName) {
-            $newName = "GitForWindows-win-x64-$env:GIT_VERSION.intunewin"
-            Move-Item -Path $originalFileName -NewName (Join-Path "output" $newName) -Force
-            Write-Host "Renamed '$originalFileName' to '$newName'"
-          } else {
-            Write-Error "Failed to find the generated .intunewin file for Git."
-            exit 1
-          }
-
-      - name: Upload Git for Windows package as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: git-intunewin
-          path: output/*.intunewin
-          retention-days: 7
-
-  # Job for Slack for Windows
-  slack:
-    runs-on: windows-latest
-    steps:
-      - name: Create directories
-        run: |
-          New-Item -Path input -ItemType Directory -Force
-          New-Item -Path output -ItemType Directory -Force
-          New-Item -Path tools -ItemType Directory -Force
-
-      - name: Download latest Slack Windows Installer (EXE)
-        shell: pwsh # Explicitly use PowerShell
-        run: |
-          # Use a more stable and direct download URL from the 'releases' page
-          # This URL points to the latest non-beta, 64-bit SlackSetup.exe asset from their GitHub releases.
-          # This approach often works better than general download links that might have more complex redirects/checks.
-          $releasesApiUrl = "https://api.github.com/repos/slackhq/slack-desktop/releases/latest"
-          Write-Host "Fetching latest Slack release info from GitHub API..."
-          $response = Invoke-RestMethod -Uri $releasesApiUrl -Headers @{"Accept"="application/vnd.github.v3+json"}
-          
-          # Find the 64-bit EXE asset (not ARM, not MSIX, not beta)
-          $asset = $response.assets | Where-Object { 
-              $_.name -like "SlackSetup-*.exe" -and 
-              $_.name -notlike "*beta*" -and 
-              $_.name -notlike "*arm64*" -and
-              $_.name -notlike "*msix*"
-          } | Select-Object -First 1
-
-          if ($null -eq $asset) {
-              Write-Error "Could not find a suitable 64-bit SlackSetup.exe installer asset from GitHub releases."
-              exit 1
-          }
-
-          $downloadUrl = $asset.browser_download_url
-          Write-Host "Downloading Slack installer from: $downloadUrl"
-          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\SlackSetup.exe" -UserAgent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" -ErrorAction Stop
-          Write-Host "Downloaded SlackSetup.exe to input\"
-
-      - name: Download IntuneWinAppUtil.exe
-        shell: pwsh # Explicitly use PowerShell
-        run: |
-          # Clone the repository to reliably get IntuneWinAppUtil.exe
-          Write-Host "Cloning Microsoft-Win32-Content-Prep-Tool repository..."
-          git clone https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool.git tools\intunewin-prep-tool-repo
-
-          # Move the executable to the tools directory
-          Write-Host "Moving IntuneWinAppUtil.exe to tools\"
-          Move-Item -Path "tools\intunewin-prep-tool-repo\IntuneWinAppUtil.exe" -Destination "tools\IntuneWinAppUtil.exe" -Force
-
-          # Clean up the cloned repository
-          Remove-Item -Recurse -Force "tools\intunewin-prep-tool-repo"
-          Write-Host "IntuneWinAppUtil.exe downloaded and prepared."
-
-      - name: Get Slack Installer Version
-        shell: pwsh
-        run: |
-          $version = (Get-Item "input\SlackSetup.exe").VersionInfo.FileVersion
-          echo "SLACK_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "Slack Installer Version: $version"
-
-      - name: Wrap Slack Installer into .intunewin
-        shell: pwsh
-        run: |
-          & "tools\IntuneWinAppUtil.exe" -c "input" -s "SlackSetup.exe" -o "output" -q
-          
-          # IntuneWinAppUtil.exe names the output file based on the -s argument's basename
-          $sourceFileBaseName = [System.IO.Path]::GetFileNameWithoutExtension("SlackSetup.exe")
-          $initialIntuneWinFileName = "$sourceFileBaseName.intunewin"
-          $originalFilePath = Join-Path "output" $initialIntuneWinFileName
-
-          if (Test-Path $originalFilePath) {
-            $newName = "Slack-Windows-$env:SLACK_VERSION.intunewin"
-            Move-Item -Path $originalFilePath -Destination (Join-Path "output" $newName) -Force
-            Write-Host "Renamed '$originalFilePath' to '$newName'"
-          } else {
-            Write-Error "Failed to find the generated .intunewin file at '$originalFilePath' after packaging."
-            exit 1
-          }
-
-      - name: Upload .intunewin Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: slack-windows-intunewin
-          path: output/*.intunewin
-          retention-days: 7
-
-  # Job for Telegram for Windows
-  telegram:
-    runs-on: windows-latest
-    steps:
-      - name: Create directories
-        run: |
-          New-Item -Path input -ItemType Directory -Force
-          New-Item -Path output -ItemType Directory -Force
-          New-Item -Path tools -ItemType Directory -Force
-
-      - name: Download latest Telegram Windows Installer (EXE)
-        shell: pwsh # Explicitly use PowerShell
-        run: |
-          $downloadUrl = "https://telegram.org/dl/desktop/win"
-          Write-Host "Downloading Telegram from: $downloadUrl"
-          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\TelegramSetup.exe" -UserAgent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" -ErrorAction Stop
-          Write-Host "Downloaded TelegramSetup.exe to input\"
-
-      - name: Download IntuneWinAppUtil.exe
-        shell: pwsh # Explicitly use PowerShell
-        run: |
-          # Clone the repository to reliably get IntuneWinAppUtil.exe
-          Write-Host "Cloning Microsoft-Win32-Content-Prep-Tool repository..."
-          git clone https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool.git tools\intunewin-prep-tool-repo
-
-          # Move the executable to the tools directory
-          Write-Host "Moving IntuneWinAppUtil.exe to tools\"
-          Move-Item -Path "tools\intunewin-prep-tool-repo\IntuneWinAppUtil.exe" -Destination "tools\IntuneWinAppUtil.exe" -Force
-
-          # Clean up the cloned repository
-          Remove-Item -Recurse -Force "tools\intunewin-prep-tool-repo"
-          Write-Host "IntuneWinAppUtil.exe downloaded and prepared."
-
-      - name: Get Telegram Installer Version
-        shell: pwsh
-        run: |
-          $version = (Get-Item "input\TelegramSetup.exe").VersionInfo.FileVersion
-          echo "TELEGRAM_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "Telegram Installer Version: $version"
-
-      - name: Wrap Telegram Installer into .intunewin
-        shell: pwsh
-        run: |
-          & "tools\IntuneWinAppUtil.exe" -c "input" -s "TelegramSetup.exe" -o "output" -q
-          
-          # IntuneWinAppUtil.exe names the output file based on the -s argument's basename
-          $sourceFileBaseName = [System.IO.Path]::GetFileNameWithoutExtension("TelegramSetup.exe")
-          $initialIntuneWinFileName = "$sourceFileBaseName.intunewin"
-          $originalFilePath = Join-Path "output" $initialIntuneWinFileName
-
-          if (Test-Path $originalFilePath) {
-            $newName = "Telegram-Windows-$env:TELEGRAM_VERSION.intunewin"
-            Move-Item -Path $originalFilePath -Destination (Join-Path "output" $newName) -Force
-            Write-Host "Renamed '$originalFilePath' to '$newName'"
-          } else {
-            Write-Error "Failed to find the generated .intunewin file at '$originalFilePath' after packaging."
-            exit 1
-          }
-
-      - name: Upload .intunewin Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: telegram-windows-intunewin
-          path: output/*.intunewin
+          name: homebrew-intunemac
+          path: ${{ env.HOMEBREW_FILE }}
           retention-days: 7
