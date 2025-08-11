@@ -1,0 +1,40 @@
+name: AutoPkg Build macOS PKG
+
+on:
+  workflow_dispatch:
+
+jobs:
+  autopkg:
+    runs-on: macos-latest
+
+    steps:
+      - name: Install AutoPkg
+        run: |
+          brew install autopkg
+
+      - name: Set up AutoPkg recipe repo and overrides
+        run: |
+          # You can add community recipe repos here if needed:
+          autopkg repo-add https://github.com/autopkg/recipes.git
+
+          # Create override folder for your custom overrides
+          mkdir -p ~/Library/AutoPkg/Overrides
+
+          # Copy or create your custom override recipe in Overrides
+          # For example: override Visual Studio Code recipe to specify version / signing
+          # (You may want to check existing overrides from community)
+
+      - name: Run AutoPkg recipe for Visual Studio Code
+        run: |
+          # Run the VSCode recipe - replace with your desired recipe
+          autopkg run visual-studio-code.pkg --override-cache
+
+      - name: Locate generated pkg files
+        run: |
+          echo "Packages output in ~/Library/AutoPkg/Cache/local.pkg/VisualStudioCode/"
+
+      - name: Upload packaged PKG artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-pkg
+          path: ~/Library/AutoPkg/Cache/local.pkg/VisualStudioCode/*.pkg
