@@ -47,10 +47,18 @@ jobs:
 
       - name: Clone Telegram Desktop repository
         run: |
-          # Git should now be found in PATH because of the previous step's GITHUB_PATH addition
           echo "Cloning tdesktop repository..."
           git clone --depth 1 https://github.com/telegramdesktop/tdesktop.git
           echo "Repository cloned."
+
+      - name: Initialize and Update Submodules
+        run: |
+          echo "Initializing and updating Telegram Desktop submodules..."
+          cd tdesktop
+          # --recursive is crucial for nested submodules
+          # --depth 1 keeps submodule clones shallow, similar to main repo
+          git submodule update --init --recursive --depth 1
+          echo "Submodules updated."
 
       - name: Build Telegram Desktop
         run: |
