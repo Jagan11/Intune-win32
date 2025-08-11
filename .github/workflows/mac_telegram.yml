@@ -7,35 +7,64 @@ jobs:
   build:
     runs-on: macos-latest
     env:
-      PATH: /opt/homebrew/opt/qt@5/bin:$PATH
+      # These are typically set by brew shellenv, but we ensure Qt5's specific paths are prepended
+      # and that Homebrew's bin dir will be consistently in PATH.
       LDFLAGS: -L/opt/homebrew/opt/qt@5/lib
       CPPFLAGS: -I/opt/homebrew/opt/qt@5/include
       PKG_CONFIG_PATH: /opt/homebrew/opt/qt@5/lib/pkgconfig
 
     steps:
-      - name: Install Homebrew, git, and dependencies
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install Homebrew and dependencies
         run: |
+          set -eux # Exit immediately if a command exits with a non-zero status
+
+          echo "Checking for Homebrew installation..."
           if ! command -v brew &> /dev/null; then
+            echo "Homebrew not found. Installing Homebrew..."
             /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-            echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> $HOME/.zprofile
+            
+            # Evaluate brew shellenv for the current shell and also add it to GITHUB_PATH for subsequent steps
+            echo "Setting Homebrew environment for current and future steps..."
             eval "$(/opt/homebrew/bin/brew shellenv)"
+            echo "$(/opt/homebrew/bin/brew --prefix)/bin" >> $GITHUB_PATH
+            echo "$(/opt/homebrew/bin/brew --prefix)/sbin" >> $GITHUB_PATH
+          else
+            echo "Homebrew is already installed. Updating Homebrew..."
+            brew update
+            # Ensure Homebrew's path is in GITHUB_PATH even if it was pre-installed
+            echo "$(/opt/homebrew/bin/brew --prefix)/bin" >> $GITHUB_PATH
+            echo "$(/opt/homebrew/bin/brew --prefix)/sbin" >> $GITHUB_PATH
+            eval "$(/opt/homebrew/bin/brew shellenv)" # Also eval for current shell
           fi
-          brew update
-          brew install git qt@5 pkgconf cmake
+
+          echo "Installing build dependencies: git, qt@5, pkgconf, cmake..."
+          brew install git qt@5 pkgconf cmake || brew upgrade git qt@5 pkgconf cmake # Install or upgrade
+
+          echo "Dependencies installed successfully."
 
       - name: Clone Telegram Desktop repository
-        run: git clone --depth 1 https://github.com/telegramdesktop/tdesktop.git
+        run: |
+          # Git should now be found in PATH because of the previous step's GITHUB_PATH addition
+          echo "Cloning tdesktop repository..."
+          git clone --depth 1 https://github.com/telegramdesktop/tdesktop.git
+          echo "Repository cloned."
 
       - name: Build Telegram Desktop
         run: |
+          echo "Starting Telegram Desktop build process..."
           cd tdesktop
           mkdir -p build
           cd build
           cmake .. -DCMAKE_PREFIX_PATH=/opt/homebrew/opt/qt@5
-          make -j$(sysctl -n hw.ncpu)
+          make -j$(sysctl -n hw.ncpu) # Use all available CPU cores for compilation
+          echo "Telegram Desktop build completed."
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: telegram-macos-build
           path: tdesktop/build
+          retention-days: 7 # Keep artifact for 7 days
