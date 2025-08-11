@@ -24,7 +24,7 @@ jobs:
       - name: Build IntuneBrew CLI
         run: |
           cd IntuneBrew
-          go build -o intunebrew
+          GO111MODULE=off go build -o intunebrew
           chmod +x intunebrew
           sudo mv intunebrew /usr/local/bin/
           intunebrew --version
