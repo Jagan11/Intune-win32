@@ -1,4 +1,4 @@
-name: MacOS Build Telegram Desktop
+name: Build Telegram Desktop macOS
 
 on:
   workflow_dispatch:
@@ -6,22 +6,28 @@ on:
 jobs:
   build:
     runs-on: macos-latest
+    env:
+      PATH: /opt/homebrew/opt/qt@5/bin:$PATH
+      LDFLAGS: -L/opt/homebrew/opt/qt@5/lib
+      CPPFLAGS: -I/opt/homebrew/opt/qt@5/include
+      PKG_CONFIG_PATH: /opt/homebrew/opt/qt@5/lib/pkgconfig
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Install dependencies
+      - name: Install Homebrew and dependencies
         run: |
+          # Install Homebrew if not installed
+          if ! command -v brew &> /dev/null; then
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> $HOME/.zprofile
+            eval "$(/opt/homebrew/bin/brew shellenv)"
+          fi
           brew update
           brew install qt@5 pkgconf cmake
 
+      - name: Clone Telegram Desktop repository
+        run: git clone --depth 1 https://github.com/telegramdesktop/tdesktop.git
+
       - name: Build Telegram Desktop
-        env:
-          PATH: /opt/homebrew/opt/qt@5/bin:${{ env.PATH }}
-          LDFLAGS: -L/opt/homebrew/opt/qt@5/lib
-          CPPFLAGS: -I/opt/homebrew/opt/qt@5/include
-          PKG_CONFIG_PATH: /opt/homebrew/opt/qt@5/lib/pkgconfig
         run: |
           cd tdesktop
           mkdir -p build
@@ -32,6 +38,5 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: telegram-macos-app
-          path: tdesktop/build/
-          retention-days: 7
+          name: telegram-macos-build
+          path: tdesktop/build
