@@ -40,8 +40,9 @@ jobs:
             eval "$(/opt/homebrew/bin/brew shellenv)" # Also eval for current shell
           fi
 
-          echo "Installing build dependencies: git, qt@5, pkgconf, cmake..."
-          brew install git qt@5 pkgconf cmake || brew upgrade git qt@5 pkgconf cmake # Install or upgrade
+          echo "Installing build dependencies: git, qt@5, pkgconf, cmake, ada..."
+          # Added 'ada' to the brew install command
+          brew install git qt@5 pkgconf cmake ada || brew upgrade git qt@5 pkgconf cmake ada 
 
           echo "Dependencies installed successfully."
 
