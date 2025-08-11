@@ -4,46 +4,37 @@ on:
   workflow_dispatch:
 
 jobs:
-  slack-windows-intunewin:
-    runs-on: windows-latest # Requires a Windows runner for IntuneWinAppUtil.exe
+  slack:
+    runs-on: windows-latest
     steps:
       - name: Create directories
         run: |
-          mkdir -p input output tools
+          New-Item -Path input -ItemType Directory -Force
+          New-Item -Path output -ItemType Directory -Force
+          New-Item -Path tools -ItemType Directory -Force
 
       - name: Download latest Slack Windows Installer (EXE)
         run: |
-          # Use a direct download link for the latest Windows installer
-          # This usually downloads an executable (e.g., SlackSetup.exe)
-          curl -L "https://slack.com/ssb/download-win" -o "input/SlackSetup.exe"
-          echo "Downloaded SlackSetup.exe to input/"
+          curl -L "https://slack.com/ssb/download-win" -o "input\SlackSetup.exe"
+          echo "Downloaded SlackSetup.exe to input\"
 
       - name: Download IntuneWinAppUtil.exe
         run: |
-          # Download the latest IntuneWinAppUtil.exe tool from Microsoft's GitHub repo
-          # This tool is used to package Windows apps into .intunewin format
-          curl -L "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/releases/latest/download/IntuneWinAppUtil.exe" -o "tools/IntuneWinAppUtil.exe"
-          echo "Downloaded IntuneWinAppUtil.exe to tools/"
+          curl -L "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/releases/latest/download/IntuneWinAppUtil.exe" -o "tools\IntuneWinAppUtil.exe"
+          echo "Downloaded IntuneWinAppUtil.exe to tools\"
 
       - name: Get Slack Installer Version
-        # Extract version from the installer executable (Windows specific)
+        shell: pwsh
         run: |
-          # This PowerShell command gets the FileVersionInfo of the exe
-          $version = (Get-Item "input/SlackSetup.exe").VersionInfo.FileVersion
+          $version = (Get-Item "input\SlackSetup.exe").VersionInfo.FileVersion
           echo "SLACK_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           echo "Slack Installer Version: $version"
 
       - name: Wrap Slack Installer into .intunewin
+        shell: pwsh
         run: |
-          # The IntuneWinAppUtil.exe requires specific arguments:
-          # -c <source_folder>: Folder containing the setup files
-          # -s <setup_file>: The main setup executable relative to source_folder
-          # -o <output_folder>: Where to save the .intunewin file
-          # -q : Quiet mode (no prompts)
-          echo "Wrapping SlackSetup.exe into .intunewin..."
-          & "tools/IntuneWinAppUtil.exe" -c "input" -s "SlackSetup.exe" -o "output" -q
+          & "tools\IntuneWinAppUtil.exe" -c "input" -s "SlackSetup.exe" -o "output" -q
           
-          # Rename the output .intunewin file to include the version
           $intunewinPath = Get-ChildItem -Path "output" -Filter "*.intunewin" | Select-Object -ExpandProperty FullName
           if ($intunewinPath) {
             $newName = "Slack-Windows-$env:SLACK_VERSION.intunewin"
