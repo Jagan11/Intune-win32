@@ -361,27 +361,34 @@ jobs:
           New-Item -Path tools -ItemType Directory -Force
 
       - name: Download latest Slack Windows Installer (EXE)
-        # Using Invoke-WebRequest for consistency and reliability on PowerShell shell
         shell: pwsh # Explicitly use PowerShell
         run: |
-          $downloadUrl = "https://slack.com/ssb/download-win"
-          Write-Host "Downloading Slack Manifest from: $downloadUrl"
-          # Use -Headers to mimic a browser request for the JSON manifest
-          $manifestContent = Invoke-WebRequest -Uri $downloadUrl -UseBasicParsing -Headers @{"Accept"="application/json"} | Select-Object -ExpandProperty Content
+          # Use a more stable and direct download URL from the 'releases' page
+          # This URL points to the latest non-beta, 64-bit SlackSetup.exe asset from their GitHub releases.
+          # This approach often works better than general download links that might have more complex redirects/checks.
+          $releasesApiUrl = "https://api.github.com/repos/slackhq/slack-desktop/releases/latest"
+          Write-Host "Fetching latest Slack release info from GitHub API..."
+          $response = Invoke-RestMethod -Uri $releasesApiUrl -Headers @{"Accept"="application/vnd.github.v3+json"}
           
-          # Parse the manifest content to get the actual download URL for the EXE
-          $exeUrl = ($manifestContent | ConvertFrom-Json).url
-          if ([string]::IsNullOrWhiteSpace($exeUrl)) {
-              Write-Error "Could not find EXE download URL in Slack manifest."
+          # Find the 64-bit EXE asset (not ARM, not MSIX, not beta)
+          $asset = $response.assets | Where-Object { 
+              $_.name -like "SlackSetup-*.exe" -and 
+              $_.name -notlike "*beta*" -and 
+              $_.name -notlike "*arm64*" -and
+              $_.name -notlike "*msix*"
+          } | Select-Object -First 1
+
+          if ($null -eq $asset) {
+              Write-Error "Could not find a suitable 64-bit SlackSetup.exe installer asset from GitHub releases."
               exit 1
           }
-          
-          Write-Host "Actual Slack EXE download URL: $exeUrl"
-          Invoke-WebRequest -Uri $exeUrl -OutFile "input\SlackSetup.exe"
+
+          $downloadUrl = $asset.browser_download_url
+          Write-Host "Downloading Slack installer from: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\SlackSetup.exe" -UserAgent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" -ErrorAction Stop
           Write-Host "Downloaded SlackSetup.exe to input\"
 
       - name: Download IntuneWinAppUtil.exe
-        # Using Invoke-WebRequest for consistency and reliability
         shell: pwsh # Explicitly use PowerShell
         run: |
           # Clone the repository to reliably get IntuneWinAppUtil.exe
@@ -401,7 +408,7 @@ jobs:
         run: |
           $version = (Get-Item "input\SlackSetup.exe").VersionInfo.FileVersion
           echo "SLACK_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "Slack Installer Version: $version" # Changed echo to Write-Host for consistency
+          Write-Host "Slack Installer Version: $version"
 
       - name: Wrap Slack Installer into .intunewin
         shell: pwsh
@@ -440,16 +447,14 @@ jobs:
           New-Item -Path tools -ItemType Directory -Force
 
       - name: Download latest Telegram Windows Installer (EXE)
-        # Using Invoke-WebRequest for consistency and reliability on PowerShell shell
         shell: pwsh # Explicitly use PowerShell
         run: |
           $downloadUrl = "https://telegram.org/dl/desktop/win"
           Write-Host "Downloading Telegram from: $downloadUrl"
-          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\TelegramSetup.exe"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\TelegramSetup.exe" -UserAgent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" -ErrorAction Stop
           Write-Host "Downloaded TelegramSetup.exe to input\"
 
       - name: Download IntuneWinAppUtil.exe
-        # Using Invoke-WebRequest for consistency and reliability
         shell: pwsh # Explicitly use PowerShell
         run: |
           # Clone the repository to reliably get IntuneWinAppUtil.exe
