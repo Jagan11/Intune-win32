@@ -1,4 +1,4 @@
-name: Package Slack with IntuneBrew from Source
+name: Package Slack with Official IntuneBrew
 
 on:
   push:
@@ -18,8 +18,8 @@ jobs:
           brew install go
           go version
 
-      - name: Clone IntuneBrew repo
-        run: git clone https://github.com/ugurkocde/IntuneBrew.git
+      - name: Clone official IntuneBrew repo
+        run: git clone https://github.com/microsoft/intunebrew.git IntuneBrew
 
       - name: Build IntuneBrew CLI
         run: |
