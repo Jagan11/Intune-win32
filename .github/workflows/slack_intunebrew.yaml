@@ -13,9 +13,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install IntuneBrew CLI
+      - name: Install IntuneBrew CLI manually
         run: |
-          brew install intunebrew
+          curl -sSL https://github.com/intune/intunebrew/releases/latest/download/intunebrew-macos.tar.gz | tar -xz -C /usr/local/bin
+          chmod +x /usr/local/bin/intunebrew
+          intunebrew --version
 
       - name: Download Slack DMG
         run: |
