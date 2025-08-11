@@ -14,27 +14,24 @@ jobs:
           mkdir -p tools
           mkdir -p temp_app_dir # Directory to hold the extracted .app
 
-      - name: Checkout repository (for IntuneAppUtil setup)
+      - name: Checkout repository (not strictly needed for IntuneAppUtil anymore, but good practice)
         uses: actions/checkout@v3
 
       - name: Download Microsoft Shell Intune App Utility
         run: |
           set -eux
-          echo "Cloning Shell Intune Samples repository to get IntuneAppUtil..."
-          # Corrected repository URL for IntuneAppUtil
-          GIT_TERMINAL_PROMPT=0 git clone --depth 1 https://github.com/microsoft/shell-intune-samples.git tools/intune-app-utility-repo
+          echo "Downloading Microsoft Shell Intune App Utility (IntuneAppUtil) directly..."
+          # Direct download of the IntuneAppUtil executable from the raw GitHub content URL.
+          # This is more reliable than cloning the whole samples repo and moving.
+          curl -L "https://raw.githubusercontent.com/microsoft/shell-intune-samples/master/macOS/Tools/IntuneAppUtil" -o "tools/IntuneAppUtil"
           
-          # Move IntuneAppUtil from its specific path within the cloned repo to the tools directory and make it executable
-          # Corrected path: IntuneAppUtil is directly under macOS/Tools
-          mv tools/intune-app-utility-repo/macOS/Tools/IntuneAppUtil tools/IntuneAppUtil
+          # Make the downloaded file executable
           chmod +x tools/IntuneAppUtil
           
-          # Clean up the cloned repository
-          rm -rf tools/intune-app-utility-repo
           echo "IntuneAppUtil prepared."
 
       - name: Download latest Slack macOS DMG
-        run: |
+        run: |a
           echo "Downloading latest Slack DMG..."
           # Use a direct link to the latest stable Slack DMG
           # This URL is more reliable than the ssb/download-osx redirect
