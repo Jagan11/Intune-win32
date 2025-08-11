@@ -1,3 +1,83 @@
+name: Build Slack and Telegram .intunewin Packages for Windows
+
+on:
+  workflow_dispatch:
+
+jobs:
+  slack:
+    runs-on: windows-latest
+    steps:
+      - name: Create directories
+        run: |
+          New-Item -Path input -ItemType Directory -Force
+          New-Item -Path output -ItemType Directory -Force
+          New-Item -Path tools -ItemType Directory -Force
+
+      - name: Download latest Slack Windows Installer (EXE)
+        shell: pwsh
+        run: |
+          $releasesApiUrl = "https://api.github.com/repos/slackhq/slack-desktop/releases/latest"
+          Write-Host "Fetching latest Slack release info from GitHub API..."
+          $response = Invoke-RestMethod -Uri $releasesApiUrl -Headers @{"Accept"="application/vnd.github.v3+json"}
+
+          $asset = $response.assets | Where-Object { 
+              $_.name -like "SlackSetup-*.exe" -and 
+              $_.name -notlike "*beta*" -and 
+              $_.name -notlike "*arm64*" -and
+              $_.name -notlike "*msix*"
+          } | Select-Object -First 1
+
+          if ($null -eq $asset) {
+              Write-Error "Could not find a suitable 64-bit SlackSetup.exe installer asset."
+              exit 1
+          }
+
+          $downloadUrl = $asset.browser_download_url
+          Write-Host "Downloading Slack installer from: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\SlackSetup.exe" -UserAgent "Mozilla/5.0" -ErrorAction Stop
+          Write-Host "Downloaded SlackSetup.exe to input\"
+
+      - name: Download IntuneWinAppUtil.exe
+        shell: pwsh
+        run: |
+          Write-Host "Cloning Microsoft-Win32-Content-Prep-Tool repository..."
+          git clone https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool.git tools\intunewin-prep-tool-repo
+          Write-Host "Moving IntuneWinAppUtil.exe to tools\"
+          Move-Item -Path "tools\intunewin-prep-tool-repo\IntuneWinAppUtil.exe" -Destination "tools\IntuneWinAppUtil.exe" -Force
+          Remove-Item -Recurse -Force "tools\intunewin-prep-tool-repo"
+          Write-Host "IntuneWinAppUtil.exe downloaded and prepared."
+
+      - name: Get Slack Installer Version
+        shell: pwsh
+        run: |
+          $version = (Get-Item "input\SlackSetup.exe").VersionInfo.FileVersion
+          echo "SLACK_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Slack Installer Version: $version"
+
+      - name: Wrap Slack Installer into .intunewin
+        shell: pwsh
+        run: |
+          & "tools\IntuneWinAppUtil.exe" -c "input" -s "SlackSetup.exe" -o "output" -q
+          $sourceFileBaseName = [System.IO.Path]::GetFileNameWithoutExtension("SlackSetup.exe")
+          $initialIntuneWinFileName = "$sourceFileBaseName.intunewin"
+          $originalFilePath = Join-Path "output" $initialIntuneWinFileName
+
+          if (Test-Path $originalFilePath) {
+            $newName = "Slack-Windows-$env:SLACK_VERSION.intunewin"
+            Move-Item -Path $originalFilePath -Destination (Join-Path "output" $newName) -Force
+            Write-Host "Renamed '$originalFilePath' to '$newName'"
+          } else {
+            Write-Error "Failed to find the generated .intunewin file at '$originalFilePath' after packaging."
+            exit 1
+          }
+
+      - name: Upload Slack .intunewin Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: slack-windows-intunewin
+          path: output/*.intunewin
+          retention-days: 7
+
   telegram:
     runs-on: windows-latest
     steps:
@@ -39,6 +119,7 @@
           $sourceFileBaseName = [System.IO.Path]::GetFileNameWithoutExtension("TelegramSetup.exe")
           $initialIntuneWinFileName = "$sourceFileBaseName.intunewin"
           $originalFilePath = Join-Path "output" $initialIntuneWinFileName
+
           if (Test-Path $originalFilePath) {
             $newName = "Telegram-Windows-$env:TELEGRAM_VERSION.intunewin"
             Move-Item -Path $originalFilePath -Destination (Join-Path "output" $newName) -Force
@@ -48,7 +129,7 @@
             exit 1
           }
 
-      - name: Upload .intunewin Artifact
+      - name: Upload Telegram .intunewin Artifact
         uses: actions/upload-artifact@v4
         with:
           name: telegram-windows-intunewin
