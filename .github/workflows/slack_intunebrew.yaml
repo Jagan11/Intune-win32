@@ -13,8 +13,10 @@ jobs:
       - name: Checkout repo (optional)
         uses: actions/checkout@v4
 
-      - name: Install Go (usually preinstalled on macos-latest)
-        run: go version
+      - name: Install Go
+        run: |
+          brew install go
+          go version
 
       - name: Clone IntuneBrew repo
         run: git clone https://github.com/ugurkocde/IntuneBrew.git
