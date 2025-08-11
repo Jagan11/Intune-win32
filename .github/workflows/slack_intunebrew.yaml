@@ -1,22 +1,30 @@
-name: Package macOS App for Intune
+name: Package Slack with IntuneBrew from Source
 
 on:
-  # push:
-  #   branches:
-  #     - main
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
   build-package:
     runs-on: macos-latest
     steps:
-      - name: Checkout code
+      - name: Checkout repo (optional)
         uses: actions/checkout@v4
 
-      - name: Install IntuneBrew CLI manually
+      - name: Install Go (usually preinstalled on macos-latest)
+        run: go version
+
+      - name: Clone IntuneBrew repo
+        run: git clone https://github.com/ugurkocde/IntuneBrew.git
+
+      - name: Build IntuneBrew CLI
         run: |
-          curl -sSL https://github.com/intune/intunebrew/releases/latest/download/intunebrew-macos.tar.gz | tar -xz -C /usr/local/bin
-          chmod +x /usr/local/bin/intunebrew
+          cd IntuneBrew
+          go build -o intunebrew main.go
+          chmod +x intunebrew
+          sudo mv intunebrew /usr/local/bin/
           intunebrew --version
 
       - name: Download Slack DMG
