@@ -13,31 +13,154 @@ jobs:
 
       - name: Install AutoPkg
         run: |
-          curl -L -o autopkg.pkg https://github.com/autopkg/autopkg/releases/latest/download/AutoPkg-2.7.5.pkg
+          set -eux # Exit immediately if a command exits with a non-zero status.
+
+          # Step 1: Get the latest AutoPkg release information from GitHub API
+          echo "Fetching latest AutoPkg release details..."
+          LATEST_RELEASE_INFO=$(curl -sL https://api.github.com/repos/autopkg/autopkg/releases/latest)
+          
+          # Step 2: Extract the download URL for the .pkg asset using jq
+          # This specifically looks for an asset whose name ends with .pkg
+          AUTOPKG_PKG_URL=$(echo "$LATEST_RELEASE_INFO" | jq -r '.assets[] | select(.name | ends_with(".pkg")) | .browser_download_url')
+
+          if [ -z "$AUTOPKG_PKG_URL" ]; then
+            echo "Error: Could not find the latest AutoPkg .pkg download URL."
+            exit 1
+          fi
+
+          echo "Found AutoPkg PKG URL: $AUTOPKG_PKG_URL"
+
+          # Step 3: Download the AutoPkg .pkg installer using the extracted URL
+          echo "Downloading AutoPkg installer..."
+          curl -L -o autopkg.pkg "$AUTOPKG_PKG_URL"
+
+          # Optional: Verify downloaded file size (e.g., must be greater than 1MB)
+          FILE_SIZE=$(stat -f %z autopkg.pkg)
+          if [ "$FILE_SIZE" -lt 1000000 ]; then # 1MB minimum size
+              echo "Error: Downloaded autopkg.pkg is too small ($FILE_SIZE bytes), download likely failed."
+              exit 1
+          fi
+          echo "Downloaded autopkg.pkg size: $FILE_SIZE bytes."
+
+
+          # Step 4: Install AutoPkg using the downloaded package
+          echo "Installing autopkg.pkg..."
           sudo installer -pkg autopkg.pkg -target /
+
+          # Step 5: Verify AutoPkg installation
+          echo "Verifying AutoPkg version..."
           autopkg --version
 
       - name: Add AutoPkg recipe repos
         run: |
+          # Add the main community recipe repository
           autopkg repo-add https://github.com/autopkg/recipes.git
-          autopkg repo-add ./recipes
+          # Add a local repository. This assumes you might have custom recipes in a 'recipes' folder
+          # in your repository root. If not, you can remove this line.
+          autopkg repo-add ./recipes 
 
       - name: Set AutoPkg processor path
-        run: echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
+        run: |
+          # The IntuneAppUtil.exe (renamed to IntuneAppUtil) needs to be available as an AutoPkg processor.
+          # We need to clone the shell-intune-app-utility and move IntuneAppUtil to a known processor path.
+          echo "Cloning Shell Intune App Utility for IntuneAppUtil processor..."
+          git clone https://github.com/microsoft/shell-intune-app-utility.git tools/intune-app-utility-repo
+          
+          # Ensure the processor path exists within AutoPkg's expected locations
+          mkdir -p "$(autopkg pref-read RECIPE_REPO_DIR)"/com.github.autopkg.intuneprocessors/
+          
+          # Move IntuneAppUtil to the processor directory and make it executable
+          mv tools/intune-app-utility-repo/IntuneAppUtil "$(autopkg pref-read RECIPE_REPO_DIR)"/com.github.autopkg.intuneprocessors/IntuneAppUtil
+          chmod +x "$(autopkg pref-read RECIPE_REPO_DIR)"/com.github.autopkg.intuneprocessors/IntuneAppUtil
+          
+          # Create a dummy .py file so AutoPkg recognizes it as a processor
+          # This plist content defines how AutoPkg calls our shell script (IntuneAppUtil)
+          echo "<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE plist PUBLIC '-//Apple//DTD PLIST 1.0//EN' 'http://www.apple.com/DTDs/PropertyList-1.0.dtd'>
+<plist version='1.0'>
+<dict>
+    <key>Processor</key>
+    <string>IntuneAppUtil</string>
+    <key>Arguments</key>
+    <dict>
+        <key>app_path</key>
+        <string>%app_path%</string>
+        <key>output_path</key>
+        <string>%output_path%</string>
+    </dict>
+</dict>
+</plist>" > "$(autopkg pref-read RECIPE_REPO_DIR)"/com.github.autopkg.intuneprocessors/IntuneAppUtil.py
+          
+          rm -rf tools/intune-app-utility-repo # Clean up cloned repo
+          echo "IntuneAppUtil processor setup complete."
 
       - name: Run MicrosoftEdge.intunemac.recipe
-        run: autopkg run MicrosoftEdge.intunemac.recipe --verbose
+        run: |
+          # AutoPkg needs a custom recipe that uses the IntuneAppUtil processor.
+          # Assuming you have a recipe like this in your local 'recipes' folder
+          # or we create it here dynamically. For Edge, AutoPkg recipes are usually for PKG.
+          # We'll need to adapt the standard Edge recipe to create an .intunemac.
+          # First, ensure the local recipe repo exists.
+          mkdir -p ~/Library/AutoPkg/RecipeRepos/local/
+          
+          # Now, create the MicrosoftEdge.intunemac.recipe based on standard Edge downloads
+          cat > ~/Library/AutoPkg/RecipeRepos/local/MicrosoftEdge.intunemac.recipe <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Description</key>
+    <string>Downloads the latest version of Microsoft Edge and creates an .intunemac package.</string>
+    <key>Identifier</key>
+    <string>com.github.autopkg.intune.microsoftedge</string>
+    <key>Input</key>
+    <dict>
+        <key>NAME</key>
+        <string>MicrosoftEdge</string>
+    </dict>
+    <key>ParentRecipe</key>
+    <string>com.github.autopkg.pkg.microsoftedge</string> <!-- Uses the existing PKG recipe -->
+    <key>MinimumVersion</key>
+    <string>1.0.0</string>
+    <key>Process</key>
+    <array>
+        <dict>
+            <key>Processor</key>
+            <string>IntuneAppUtil</string>
+            <key>Arguments</key>
+            <dict>
+                <key>app_path</key>
+                <string>%pkg_path%</string> <!-- Use the path to the downloaded .pkg file -->
+                <key>output_path</key>
+                <string>%RECIPE_CACHE_DIR%/%NAME%-%version%.intunemac</string>
+            </dict>
+        </dict>
+    </array>
+</dict>
+</plist>
+EOF
+          echo "MicrosoftEdge.intunemac.recipe created."
+          
+          echo "Running AutoPkg recipe for MicrosoftEdge.intunemac..."
+          autopkg run MicrosoftEdge.intunemac.recipe --verbose
 
       - name: Find and upload .intunemac artifact
         id: find-artifact
         run: |
+          # Read AutoPkg's cache directory preference
           RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
-          echo "RECIPE_CACHE_DIR=$RECIPE_CACHE_DIR"
+          echo "AutoPkg Cache Directory: $RECIPE_CACHE_DIR"
+          
+          # Find the .intunemac file within the cache directory (it will be in a subfolder for the recipe)
           INTUNEMAC_FILE=$(find "$RECIPE_CACHE_DIR" -name "*.intunemac" | head -n 1)
+          
           if [ -z "$INTUNEMAC_FILE" ]; then
-            echo "No .intunemac file found!"
+            echo "No .intunemac file found in $RECIPE_CACHE_DIR!"
             exit 1
           fi
+          echo "Generated .intunemac file: $INTUNEMAC_FILE"
+          
+          # Set this as a step output for the upload-artifact action
           echo "INTUNEMAC_FILE=$INTUNEMAC_FILE" >> $GITHUB_ENV
 
       - name: Upload .intunemac artifact
