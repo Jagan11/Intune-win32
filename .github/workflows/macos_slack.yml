@@ -25,6 +25,7 @@ jobs:
           GIT_TERMINAL_PROMPT=0 git clone --depth 1 https://github.com/microsoft/shell-intune-samples.git tools/intune-app-utility-repo
           
           # Move IntuneAppUtil from its specific path within the cloned repo to the tools directory and make it executable
+          # Corrected path: IntuneAppUtil is directly under macOS/Tools
           mv tools/intune-app-utility-repo/macOS/Tools/IntuneAppUtil tools/IntuneAppUtil
           chmod +x tools/IntuneAppUtil
           
