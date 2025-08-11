@@ -18,8 +18,11 @@ jobs:
           brew install go
           go version
 
-      - name: Clone official IntuneBrew repo
-        run: git clone https://github.com/microsoft/intunebrew.git IntuneBrew
+      - name: Checkout official IntuneBrew repo
+        uses: actions/checkout@v4
+        with:
+          repository: microsoft/intunebrew
+          path: IntuneBrew
 
       - name: Build IntuneBrew CLI
         run: |
