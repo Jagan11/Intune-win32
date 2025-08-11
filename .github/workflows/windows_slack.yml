@@ -48,13 +48,17 @@ jobs:
         run: |
           & "tools\IntuneWinAppUtil.exe" -c ".\input" -s "VSCodeSetup.exe" -o ".\output" -q
 
-          $originalFileName = Get-ChildItem -Path "output" -Filter "*.intunewin" | Select-Object -ExpandProperty FullName
-          if ($originalFileName) {
+          # IntuneWinAppUtil.exe names the output file based on the -s argument's basename
+          $sourceFileBaseName = [System.IO.Path]::GetFileNameWithoutExtension("VSCodeSetup.exe")
+          $initialIntuneWinFileName = "$sourceFileBaseName.intunewin"
+          $originalFilePath = Join-Path "output" $initialIntuneWinFileName
+
+          if (Test-Path $originalFilePath) {
             $newName = "VSCode-win-x64-$env:VSCODE_VERSION.intunewin"
-            Rename-Item -Path $originalFileName -NewName (Join-Path "output" $newName) -Force
-            Write-Host "Renamed $originalFileName to $newName"
+            Move-Item -Path $originalFilePath -Destination (Join-Path "output" $newName) -Force
+            Write-Host "Renamed '$originalFilePath' to '$newName'"
           } else {
-            Write-Error "Failed to find the generated .intunewin file for VSCode."
+            Write-Error "Failed to find the generated .intunewin file at '$originalFilePath' after packaging."
             exit 1
           }
 
@@ -109,13 +113,17 @@ jobs:
         run: |
           & "tools\IntuneWinAppUtil.exe" -c ".\input" -s "ChromeSetup.exe" -o ".\output" -q
 
-          $originalFileName = Get-ChildItem -Path "output" -Filter "*.intunewin" | Select-Object -ExpandProperty FullName
-          if ($originalFileName) {
+          # IntuneWinAppUtil.exe names the output file based on the -s argument's basename
+          $sourceFileBaseName = [System.IO.Path]::GetFileNameWithoutExtension("ChromeSetup.exe")
+          $initialIntuneWinFileName = "$sourceFileBaseName.intunewin"
+          $originalFilePath = Join-Path "output" $initialIntuneWinFileName
+
+          if (Test-Path $originalFilePath) {
             $newName = "GoogleChrome-win-x64-$env:CHROME_VERSION.intunewin"
-            Rename-Item -Path $originalFileName -NewName (Join-Path "output" $newName) -Force
-            Write-Host "Renamed $originalFileName to $newName"
+            Move-Item -Path $originalFilePath -Destination (Join-Path "output" $newName) -Force
+            Write-Host "Renamed '$originalFilePath' to '$newName'"
           } else {
-            Write-Error "Failed to find the generated .intunewin file for Chrome."
+            Write-Error "Failed to find the generated .intunewin file at '$originalFilePath' after packaging."
             exit 1
           }
 
@@ -170,13 +178,17 @@ jobs:
         run: |
           & "tools\IntuneWinAppUtil.exe" -c ".\input" -s "EdgeSetup.msi" -o ".\output" -q
 
-          $originalFileName = Get-ChildItem -Path "output" -Filter "*.intunewin" | Select-Object -ExpandProperty FullName
-          if ($originalFileName) {
+          # IntuneWinAppUtil.exe names the output file based on the -s argument's basename
+          $sourceFileBaseName = [System.IO.Path]::GetFileNameWithoutExtension("EdgeSetup.msi")
+          $initialIntuneWinFileName = "$sourceFileBaseName.intunewin"
+          $originalFilePath = Join-Path "output" $initialIntuneWinFileName
+
+          if (Test-Path $originalFilePath) {
             $newName = "MicrosoftEdge-win-x64-$env:EDGE_VERSION.intunewin"
-            Rename-Item -Path $originalFileName -NewName (Join-Path "output" $newName) -Force
-            Write-Host "Renamed $originalFileName to $newName"
+            Move-Item -Path $originalFilePath -Destination (Join-Path "output" $newName) -Force
+            Write-Host "Renamed '$originalFilePath' to '$newName'"
           } else {
-            Write-Error "Failed to find the generated .intunewin file for Edge."
+            Write-Error "Failed to find the generated .intunewin file at '$originalFilePath' after packaging."
             exit 1
           }
 
@@ -241,13 +253,17 @@ jobs:
         run: |
           & "tools\IntuneWinAppUtil.exe" -c ".\input" -s "NodeSetup.msi" -o ".\output" -q
 
-          $originalFileName = Get-ChildItem -Path "output" -Filter "*.intunewin" | Select-Object -ExpandProperty FullName
-          if ($originalFileName) {
+          # IntuneWinAppUtil.exe names the output file based on the -s argument's basename
+          $sourceFileBaseName = [System.IO.Path]::GetFileNameWithoutExtension("NodeSetup.msi")
+          $initialIntuneWinFileName = "$sourceFileBaseName.intunewin"
+          $originalFilePath = Join-Path "output" $initialIntuneWinFileName
+
+          if (Test-Path $originalFilePath) {
             $newName = "Node.js-win-x64-$env:NODEJS_VERSION.intunewin"
-            Rename-Item -Path $originalFileName -NewName (Join-Path "output" $newName) -Force
-            Write-Host "Renamed $originalFileName to $newName"
+            Move-Item -Path $originalFilePath -Destination (Join-Path "output" $newName) -Force
+            Write-Host "Renamed '$originalFilePath' to '$newName'"
           } else {
-            Write-Error "Failed to find the generated .intunewin file for Node.js."
+            Write-Error "Failed to find the generated .intunewin file at '$originalFilePath' after packaging."
             exit 1
           }
 
@@ -320,8 +336,8 @@ jobs:
           $originalFileName = Get-ChildItem -Path "output" -Filter "*.intunewin" | Select-Object -ExpandProperty FullName
           if ($originalFileName) {
             $newName = "GitForWindows-win-x64-$env:GIT_VERSION.intunewin"
-            Rename-Item -Path $originalFileName -NewName (Join-Path "output" $newName) -Force
-            Write-Host "Renamed $originalFileName to $newName"
+            Move-Item -Path $originalFileName -NewName (Join-Path "output" $newName) -Force
+            Write-Host "Renamed '$originalFileName' to '$newName'"
           } else {
             Write-Error "Failed to find the generated .intunewin file for Git."
             exit 1
@@ -349,8 +365,19 @@ jobs:
         shell: pwsh # Explicitly use PowerShell
         run: |
           $downloadUrl = "https://slack.com/ssb/download-win"
-          Write-Host "Downloading Slack from: $downloadUrl"
-          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\SlackSetup.exe"
+          Write-Host "Downloading Slack Manifest from: $downloadUrl"
+          # Use -Headers to mimic a browser request for the JSON manifest
+          $manifestContent = Invoke-WebRequest -Uri $downloadUrl -UseBasicParsing -Headers @{"Accept"="application/json"} | Select-Object -ExpandProperty Content
+          
+          # Parse the manifest content to get the actual download URL for the EXE
+          $exeUrl = ($manifestContent | ConvertFrom-Json).url
+          if ([string]::IsNullOrWhiteSpace($exeUrl)) {
+              Write-Error "Could not find EXE download URL in Slack manifest."
+              exit 1
+          }
+          
+          Write-Host "Actual Slack EXE download URL: $exeUrl"
+          Invoke-WebRequest -Uri $exeUrl -OutFile "input\SlackSetup.exe"
           Write-Host "Downloaded SlackSetup.exe to input\"
 
       - name: Download IntuneWinAppUtil.exe
@@ -381,13 +408,17 @@ jobs:
         run: |
           & "tools\IntuneWinAppUtil.exe" -c "input" -s "SlackSetup.exe" -o "output" -q
           
-          $intunewinPath = Get-ChildItem -Path "output" -Filter "*.intunewin" | Select-Object -ExpandProperty FullName
-          if ($intunewinPath) {
+          # IntuneWinAppUtil.exe names the output file based on the -s argument's basename
+          $sourceFileBaseName = [System.IO.Path]::GetFileNameWithoutExtension("SlackSetup.exe")
+          $initialIntuneWinFileName = "$sourceFileBaseName.intunewin"
+          $originalFilePath = Join-Path "output" $initialIntuneWinFileName
+
+          if (Test-Path $originalFilePath) {
             $newName = "Slack-Windows-$env:SLACK_VERSION.intunewin"
-            Move-Item -Path $intunewinPath -Destination (Join-Path "output" $newName)
-            Write-Host "Renamed .intunewin to: $newName"
+            Move-Item -Path $originalFilePath -Destination (Join-Path "output" $newName) -Force
+            Write-Host "Renamed '$originalFilePath' to '$newName'"
           } else {
-            Write-Error "Failed to find the generated .intunewin file."
+            Write-Error "Failed to find the generated .intunewin file at '$originalFilePath' after packaging."
             exit 1
           }
 
@@ -418,46 +449,4 @@ jobs:
           Write-Host "Downloaded TelegramSetup.exe to input\"
 
       - name: Download IntuneWinAppUtil.exe
-        # Using Invoke-WebRequest for consistency and reliability
-        shell: pwsh # Explicitly use PowerShell
-        run: |
-          # Clone the repository to reliably get IntuneWinAppUtil.exe
-          Write-Host "Cloning Microsoft-Win32-Content-Prep-Tool repository..."
-          git clone https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool.git tools\intunewin-prep-tool-repo
-
-          # Move the executable to the tools directory
-          Write-Host "Moving IntuneWinAppUtil.exe to tools\"
-          Move-Item -Path "tools\intunewin-prep-tool-repo\IntuneWinAppUtil.exe" -Destination "tools\IntuneWinAppUtil.exe" -Force
-
-          # Clean up the cloned repository
-          Remove-Item -Recurse -Force "tools\intunewin-prep-tool-repo"
-          Write-Host "IntuneWinAppUtil.exe downloaded and prepared."
-
-      - name: Get Telegram Installer Version
-        shell: pwsh
-        run: |
-          $version = (Get-Item "input\TelegramSetup.exe").VersionInfo.FileVersion
-          echo "TELEGRAM_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "Telegram Installer Version: $version"
-
-      - name: Wrap Telegram Installer into .intunewin
-        shell: pwsh
-        run: |
-          & "tools\IntuneWinAppUtil.exe" -c "input" -s "TelegramSetup.exe" -o "output" -q
-          
-          $intunewinPath = Get-ChildItem -Path "output" -Filter "*.intunewin" | Select-Object -ExpandProperty FullName
-          if ($intunewinPath) {
-            $newName = "Telegram-Windows-$env:TELEGRAM_VERSION.intunewin"
-            Move-Item -Path $intunewinPath -Destination (Join-Path "output" $newName)
-            Write-Host "Renamed .intunewin to: $newName"
-          } else {
-            Write-Error "Failed to find the generated .intunewin file."
-            exit 1
-          }
-
-      - name: Upload .intunewin Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: telegram-windows-intunewin
-          path: output/*.intunewin
-          retention-days: 7
+        # Us
