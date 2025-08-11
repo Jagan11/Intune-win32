@@ -1,4 +1,4 @@
-name: Build VSCode & Homebrew .intunemac Packages
+name: Build VSCode .intunemac Package
 
 on:
   workflow_dispatch:
@@ -11,61 +11,43 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Download and install AutoPkg
+      - name: Download and install AutoPkg (latest)
         run: |
-          curl -L -o autopkg.pkg https://github.com/autopkg/autopkg/releases/latest/download/AutoPkg-2.7.5.pkg
+          PKG_URL=$(curl -s https://api.github.com/repos/autopkg/autopkg/releases/latest \
+            | grep browser_download_url \
+            | grep '\.pkg' \
+            | cut -d '"' -f 4)
+          echo "Downloading AutoPkg from $PKG_URL"
+          curl -L -o autopkg.pkg "$PKG_URL"
           sudo installer -pkg autopkg.pkg -target /
           autopkg --version
 
       - name: Add AutoPkg recipe repos
         run: |
           autopkg repo-add https://github.com/autopkg/recipes.git
-          autopkg repo-add https://github.com/autopkg/gerardkok-recipes.git
-          if [ -d "./recipes" ]; then
-            autopkg repo-add ./recipes
-          fi
+          autopkg repo-add ./recipes
 
       - name: Set environment variable for custom processors
         run: echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
 
-      - name: Run VSCode .intunemac recipe
+      - name: Run VSCode.intunemac.recipe
         run: autopkg run VSCode.intunemac.recipe --verbose
 
-      - name: Run Homebrew .intunemac recipe
-        run: autopkg run Homebrew.intunemac.recipe --verbose
-
-      - name: Find and upload VSCode .intunemac artifact
-        id: find-vscode
+      - name: Find and upload .intunemac artifact
+        id: find-artifact
         run: |
           RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
-          VSCODE_FILE=$(find "$RECIPE_CACHE_DIR" -name "VSCode*.intunemac" | head -n 1)
-          if [ -z "$VSCODE_FILE" ]; then
-            echo "No VSCode .intunemac file found!"
+          echo "RECIPE_CACHE_DIR=$RECIPE_CACHE_DIR"
+          INTUNEMAC_FILE=$(find "$RECIPE_CACHE_DIR" -name "*.intunemac" | head -n 1)
+          if [ -z "$INTUNEMAC_FILE" ]; then
+            echo "No .intunemac file found!"
             exit 1
           fi
-          echo "VSCODE_FILE=$VSCODE_FILE" >> $GITHUB_ENV
+          echo "INTUNEMAC_FILE=$INTUNEMAC_FILE" >> $GITHUB_ENV
 
-      - name: Upload VSCode artifact
+      - name: Upload .intunemac artifact
         uses: actions/upload-artifact@v4
         with:
           name: vscode-intunemac
-          path: ${{ env.VSCODE_FILE }}
-          retention-days: 7
-
-      - name: Find and upload Homebrew .intunemac artifact
-        id: find-homebrew
-        run: |
-          RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
-          HOMEBREW_FILE=$(find "$RECIPE_CACHE_DIR" -name "Homebrew*.intunemac" | head -n 1)
-          if [ -z "$HOMEBREW_FILE" ]; then
-            echo "No Homebrew .intunemac file found!"
-            exit 1
-          fi
-          echo "HOMEBREW_FILE=$HOMEBREW_FILE" >> $GITHUB_ENV
-
-      - name: Upload Homebrew artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: homebrew-intunemac
-          path: ${{ env.HOMEBREW_FILE }}
+          path: ${{ env.INTUNEMAC_FILE }}
           retention-days: 7
