@@ -1,4 +1,4 @@
-name: Download and Extract Slack App with Bundle ID
+name: Download and Extract Slack.app
 
 on:
   workflow_dispatch:
@@ -8,43 +8,41 @@ jobs:
     runs-on: macos-latest
 
     steps:
-    - name: Create output directory
-      run: mkdir -p output
+      - name: Create output directory
+        run: mkdir -p output
 
-    - name: Download Slack DMG
-      run: |
-        SLACK_URL="https://downloads.slack-edge.com/releases/macos/Slack-latest.dmg"
-        echo "Downloading Slack from $SLACK_URL"
-        curl -L "$SLACK_URL" -o output/Slack.dmg
-        if [ ! -s output/Slack.dmg ]; then
-          echo "Slack DMG download failed or file is empty."
-          exit 1
-        fi
+      - name: Download Slack DMG
+        run: |
+          SLACK_URL="https://downloads.slack-edge.com/releases/macos/Slack-latest.dmg"
+          echo "Downloading Slack from $SLACK_URL"
+          curl -L "$SLACK_URL" -o output/Slack.dmg
+          if [ ! -s output/Slack.dmg ]; then
+            echo "Slack DMG download failed or empty!"
+            exit 1
+          fi
 
-    - name: Mount Slack DMG
-      id: mount
-      run: |
-        echo "Mounting Slack DMG..."
-        MOUNT_DIR=$(hdiutil attach output/Slack.dmg -nobrowse -quiet | grep '/Volumes/' | awk '{print $3}')
-        echo "MOUNT_DIR=$MOUNT_DIR" >> $GITHUB_OUTPUT
+      - name: Mount Slack DMG
+        id: mount
+        run: |
+          echo "Mounting Slack DMG..."
+          MOUNT_DIR=$(hdiutil attach output/Slack.dmg -nobrowse -quiet | grep '/Volumes/' | awk '{print $3}')
+          echo "MOUNT_DIR=$MOUNT_DIR" >> $GITHUB_OUTPUT
+          echo "Mounted at $MOUNT_DIR"
 
-    - name: Copy Slack.app to output directory
-      run: |
-        echo "Copying Slack.app from mounted volume..."
-        cp -R "${{ steps.mount.outputs.MOUNT_DIR }}/Slack.app" output/
+      - name: Copy Slack.app to output directory
+        run: |
+          echo "Copying Slack.app from mounted volume..."
+          cp -R "${{ steps.mount.outputs.MOUNT_DIR }}/Slack.app" output/
+          ls -l output/Slack.app
 
-    - name: Unmount Slack DMG
-      if: always()
-      run: |
-        echo "Unmounting Slack DMG..."
-        hdiutil detach "${{ steps.mount.outputs.MOUNT_DIR }}" -quiet
+      - name: Unmount Slack DMG
+        if: always()
+        run: |
+          echo "Unmounting Slack DMG..."
+          hdiutil detach "${{ steps.mount.outputs.MOUNT_DIR }}" -quiet
 
-    - name: Extract Slack Bundle ID
-      run: |
-        /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" output/Slack.app/Contents/Info.plist
-
-    - name: Upload Slack app artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: slack-app
-        path: output/Slack.app
+      - name: Upload Slack.app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: slack-app
+          path: output/Slack.app
