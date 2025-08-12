@@ -1,4 +1,4 @@
-name: Build VSCode .intunemac Package
+name: Build Visual Studio Code Packages
 
 on:
   workflow_dispatch:
@@ -11,85 +11,41 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Show current directory and recipes folder for debug
+      - name: Install AutoPkg
         run: |
-          echo "Current working directory:"
-          pwd
-          echo "Listing repository root contents:"
-          ls -lah
-          echo "Listing ./recipes folder contents:"
-          ls -lah ./recipes
-
-      - name: Clean up AutoPkg recipe repository caches
-        run: |
-          echo "Removing all cached AutoPkg RecipeRepos to avoid stale or corrupted repo cache..."
-          rm -rf ~/Library/AutoPkg/RecipeRepos/*
-          echo "Listing RecipeRepos directory after cleanup:"
-          ls -la ~/Library/AutoPkg/RecipeRepos || echo "No RecipeRepos directory found"
-
-      - name: Download and install AutoPkg
-        run: |
-          echo "Downloading AutoPkg installer..."
-          curl -L -v -o autopkg.pkg https://github.com/autopkg/autopkg/releases/download/v2.7.5/AutoPkg-2.7.5.pkg
-
-          if [ ! -f autopkg.pkg ]; then
-            echo "Error: AutoPkg installer package not found!"
-            exit 1
-          fi
-
-          FILESIZE=$(stat -f%z autopkg.pkg)
-          echo "Downloaded AutoPkg installer size: $FILESIZE bytes"
-
-          if [ "$FILESIZE" -lt 100000 ]; then
-            echo "Error: Downloaded installer package is too small, likely a failed download."
-            exit 1
-          fi
-
+          curl -L -o autopkg.pkg https://github.com/autopkg/autopkg/releases/download/v2.7.5/AutoPkg-2.7.5.pkg
           sudo installer -pkg autopkg.pkg -target /
           autopkg version
 
-      - name: Add AutoPkg recipe repositories
+      - name: Add AutoPkg repos
         run: |
-          echo "Adding official AutoPkg recipes repo..."
+          autopkg repo-delete com.github.autopkg.recipes || true
           autopkg repo-add https://github.com/autopkg/recipes.git
-
-          echo "Adding local vendored recipes folder (./recipes)..."
+          autopkg repo-delete ./recipes || true
           autopkg repo-add ./recipes
-
-          echo "Listing all AutoPkg recipes after adding repos to verify..."
           autopkg list-recipes
 
-      - name: Debug - Show vendored recipes folder and example recipe file
-        run: |
-          echo "Contents of ./recipes folder:"
-          ls -la ./recipes
-          echo "Displaying VSCode.intunemac.recipe content:"
-          cat ./recipes/VSCode.intunemac.recipe || echo "Recipe file missing or unreadable"
+      - name: Run VisualStudioCode.download.recipe
+        run: autopkg run VisualStudioCode.download.recipe --verbose
 
-      - name: Set environment variable for custom processors
-        run: echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
+      - name: Run VisualStudioCode.munki.recipe
+        run: autopkg run VisualStudioCode.munki.recipe --verbose
 
-      - name: Run VSCode.intunemac.recipe with verbose output
-        run: autopkg run VSCode.intunemac.recipe --verbose
-
-      - name: Find .intunemac artifact and set environment variable
+      - name: Find generated package artifact
         id: find-artifact
         run: |
           RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
-          echo "AutoPkg cache directory is: $RECIPE_CACHE_DIR"
-
-          INTUNEMAC_FILE=$(find "$RECIPE_CACHE_DIR" -type f -name "*.intunemac" | head -n 1)
-          if [ -z "$INTUNEMAC_FILE" ]; then
-            echo "::error ::No .intunemac artifact found in AutoPkg cache directory."
+          echo "AutoPkg CacheDir: $RECIPE_CACHE_DIR"
+          ARTIFACT=$(find "$RECIPE_CACHE_DIR" -type f -name "*.pkg" -o -name "*.dmg" -o -name "*.intunemac" | head -n 1)
+          if [ -z "$ARTIFACT" ]; then
+            echo "No artifact found!"
             exit 1
           fi
+          echo "ARTIFACT=$ARTIFACT" >> $GITHUB_ENV
 
-          echo "INTUNEMAC_FILE=$INTUNEMAC_FILE" >> $GITHUB_ENV
-          echo "Found .intunemac artifact at: $INTUNEMAC_FILE"
-
-      - name: Upload .intunemac artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vscode-intunemac
-          path: ${{ env.INTUNEMAC_FILE }}
+          name: vscode-package
+          path: ${{ env.ARTIFACT }}
           retention-days: 7
