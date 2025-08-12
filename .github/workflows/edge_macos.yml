@@ -1,35 +1,45 @@
-name: Package Microsoft Edge for macOS
+name: Download Microsoft Edge for macOS with Bundle ID
 
 on:
   workflow_dispatch:
 
 jobs:
-  package-edge:
+  download-edge:
     runs-on: macos-latest
     steps:
       - name: Set up directories
         run: |
-          rm -rf edge_pkg wrapped
-          mkdir -p edge_pkg wrapped
+          rm -rf edge_files
+          mkdir -p edge_files
 
-      - name: Download Microsoft Edge for macOS (.pkg)
+      - name: Download Microsoft Edge PKG
         run: |
-          curl -L "https://go.microsoft.com/fwlink/?linkid=2069148" -o edge_pkg/MicrosoftEdge.pkg
+          curl -L "https://go.microsoft.com/fwlink/?linkid=2069148" -o edge_files/MicrosoftEdge.pkg
 
-      - name: Download Microsoft Intune App Wrapping Tool for Mac
+      - name: Extract Edge bundle ID
         run: |
-          curl -L "https://aka.ms/intune-app-wrapping-tool-mac" -o wrapped/IntuneAppUtil.zip
-          unzip -q wrapped/IntuneAppUtil.zip -d wrapped
-          chmod +x wrapped/IntuneAppUtil
+          # Expand the pkg to a temp dir
+          pkgutil --expand-full edge_files/MicrosoftEdge.pkg edge_files/pkg_expanded
+          
+          # Find the Edge app inside the pkg payload
+          APP_PATH=$(find edge_files/pkg_expanded -name "Microsoft Edge.app" -type d | head -n 1)
+          
+          if [ -z "$APP_PATH" ]; then
+            echo "❌ Microsoft Edge.app not found inside pkg."
+            exit 1
+          fi
 
-      - name: Wrap Microsoft Edge PKG into IntuneMac
-        run: |
-          wrapped/IntuneAppUtil -c edge_pkg/MicrosoftEdge.pkg \
-            -o wrapped/MicrosoftEdge.intunemac \
-            -b com.microsoft.edgemac
+          # Extract bundle ID from Info.plist
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_PATH/Contents/Info.plist")
+          echo "✅ Microsoft Edge Bundle ID: $BUNDLE_ID"
 
-      - name: Upload packaged Edge IntuneMac file
+          # Save bundle ID to file for artifact
+          echo "$BUNDLE_ID" > edge_files/bundle_id.txt
+
+      - name: Upload PKG and bundle ID
         uses: actions/upload-artifact@v4
         with:
-          name: MicrosoftEdge-IntuneMac
-          path: wrapped/MicrosoftEdge.intunemac
+          name: microsoft-edge-macos
+          path: |
+            edge_files/MicrosoftEdge.pkg
+            edge_files/bundle_id.txt
