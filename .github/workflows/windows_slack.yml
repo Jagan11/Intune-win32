@@ -1,62 +1,9 @@
-name: Build Slack and Telegram .intunewin Packages
+name: Build Slack and Telegram windows Packages
 
 on:
   workflow_dispatch:
 
 jobs:
-  slack:
-    runs-on: windows-latest
-    steps:
-      - name: Create directories
-        run: |
-          New-Item -Path input -ItemType Directory -Force
-          New-Item -Path output -ItemType Directory -Force
-          New-Item -Path tools -ItemType Directory -Force
-
-      - name: Download latest Slack Windows Installer (EXE)
-        shell: pwsh
-        run: |
-          $downloadUrl = "https://downloads.slack-edge.com/releases_x64/SlackSetup.exe"
-          Write-Host "Downloading Slack from: $downloadUrl"
-          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\SlackSetup.exe" -UserAgent "Mozilla/5.0" -ErrorAction Stop
-          Write-Host "Downloaded SlackSetup.exe to input\"
-
-      - name: Download Microsoft Win32 Content Prep Tool
-        shell: pwsh
-        run: |
-          Write-Host "Downloading Microsoft Win32 Content Prep Tool..."
-          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/releases/latest/download/IntuneWinAppUtil.exe" -OutFile "tools\IntuneWinAppUtil.exe" -ErrorAction Stop
-          Write-Host "IntuneWinAppUtil.exe downloaded."
-
-      - name: Get Slack Installer Version
-        shell: pwsh
-        run: |
-          $version = (Get-Item "input\SlackSetup.exe").VersionInfo.FileVersion
-          echo "SLACK_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "Slack Installer Version: $version"
-
-      - name: Package Slack Installer into .intunewin
-        shell: pwsh
-        run: |
-          & "tools\IntuneWinAppUtil.exe" -c "input" -s "SlackSetup.exe" -o "output" -q
-          $sourceFileBaseName = [System.IO.Path]::GetFileNameWithoutExtension("SlackSetup.exe")
-          $originalIntuneWinFile = Join-Path "output" "$sourceFileBaseName.intunewin"
-          if (Test-Path $originalIntuneWinFile) {
-            $newName = "Slack-Windows-$env:SLACK_VERSION.intunewin"
-            Move-Item -Path $originalIntuneWinFile -Destination (Join-Path "output" $newName) -Force
-            Write-Host "Renamed '$originalIntuneWinFile' to '$newName'"
-          } else {
-            Write-Error "Failed to find the generated .intunewin file after packaging."
-            exit 1
-          }
-
-      - name: Upload Slack .intunewin Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: slack-windows-intunewin
-          path: output/*.intunewin
-          retention-days: 7
-
   telegram:
     runs-on: windows-latest
     steps:
@@ -64,48 +11,92 @@ jobs:
         run: |
           New-Item -Path input -ItemType Directory -Force
           New-Item -Path output -ItemType Directory -Force
-          New-Item -Path tools -ItemType Directory -Force
 
-      - name: Download latest Telegram Windows Installer (EXE)
+      - name: Get latest Telegram installer URL and download
         shell: pwsh
         run: |
-          $downloadUrl = "https://telegram.org/dl/desktop/win"
-          Write-Host "Downloading Telegram from: $downloadUrl"
-          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\TelegramSetup.exe" -UserAgent "Mozilla/5.0" -ErrorAction Stop
-          Write-Host "Downloaded TelegramSetup.exe to input\"
+          # This fetches the latest stable release from the official Telegram Desktop GitHub releases.
+          $apiUrl = "https://api.github.com/repos/telegramdesktop/tdesktop/releases/latest"
+          $response = Invoke-RestMethod -Uri $apiUrl
+          $asset = $response.assets | Where-Object { $_.name -like "*64.exe" -and $_.name -notlike "*portable*" } | Select-Object -First 1
+          if ($null -eq $asset) {
+              Write-Error "Could not find a suitable 64-bit Telegram installer asset."
+              exit 1
+          }
+          $downloadUrl = $asset.browser_download_url
+          $installerFileName = $asset.name
+          Write-Host "Downloading Telegram Desktop from: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\$installerFileName"
+          echo "TELEGRAM_INSTALLER_FILENAME=$installerFileName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Get Telegram installer version and set as environment variable
+        shell: pwsh
+        run: |
+          $installerPath = "input\$env:TELEGRAM_INSTALLER_FILENAME"
+          $version = (Get-Item $installerPath).VersionInfo.ProductVersion
+          Write-Host "Telegram installer version: $version"
+          echo "TELEGRAM_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Download Microsoft Win32 Content Prep Tool
         shell: pwsh
         run: |
-          Write-Host "Downloading Microsoft Win32 Content Prep Tool..."
-          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/releases/latest/download/IntuneWinAppUtil.exe" -OutFile "tools\IntuneWinAppUtil.exe" -ErrorAction Stop
-          Write-Host "IntuneWinAppUtil.exe downloaded."
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
 
-      - name: Get Telegram Installer Version
+      - name: Package Telegram using IntuneWinAppUtil
         shell: pwsh
         run: |
-          $version = (Get-Item "input\TelegramSetup.exe").VersionInfo.FileVersion
-          echo "TELEGRAM_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "Telegram Installer Version: $version"
+          $installerFileName = "$env:TELEGRAM_INSTALLER_FILENAME"
+          .\IntuneWinAppUtil.exe -c ".\input" -s "$installerFileName" -o ".\output" -q
+          $originalFileName = "output\$($installerFileName -replace '\.exe$', '.intunewin')"
+          $newName = "Telegram-win-x64-$env:TELEGRAM_VERSION.intunewin"
+          Rename-Item -Path $originalFileName -NewName $newName -Force
+          Write-Host "Renamed $originalFileName to $newName"
 
-      - name: Package Telegram Installer into .intunewin
-        shell: pwsh
-        run: |
-          & "tools\IntuneWinAppUtil.exe" -c "input" -s "TelegramSetup.exe" -o "output" -q
-          $sourceFileBaseName = [System.IO.Path]::GetFileNameWithoutExtension("TelegramSetup.exe")
-          $originalIntuneWinFile = Join-Path "output" "$sourceFileBaseName.intunewin"
-          if (Test-Path $originalIntuneWinFile) {
-            $newName = "Telegram-Windows-$env:TELEGRAM_VERSION.intunewin"
-            Move-Item -Path $originalIntuneWinFile -Destination (Join-Path "output" $newName) -Force
-            Write-Host "Renamed '$originalIntuneWinFile' to '$newName'"
-          } else {
-            Write-Error "Failed to find the generated .intunewin file after packaging."
-            exit 1
-          }
-
-      - name: Upload Telegram .intunewin Artifact
+      - name: Upload Telegram package as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: telegram-windows-intunewin
+          name: telegram-intunewin
           path: output/*.intunewin
-          retention-days: 7
+
+  slack:
+    runs-on: windows-latest
+    steps:
+      - name: Create directories
+        run: |
+          New-Item -Path input -ItemType Directory -Force
+          New-Item -Path output -ItemType Directory -Force
+
+      - name: Download latest Slack for Windows installer
+        shell: pwsh
+        run: |
+          # This URL from the official Slack website downloads the latest stable 64-bit EXE installer.
+          $downloadUrl = "https://slack.com/ssb/download-win64"
+          Write-Host "Downloading Slack from: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\SlackSetup.exe"
+
+      - name: Get Slack installer version and set as environment variable
+        shell: pwsh
+        run: |
+          $version = (Get-Item "input\SlackSetup.exe").VersionInfo.ProductVersion
+          Write-Host "Slack installer version: $version"
+          echo "SLACK_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Download Microsoft Win32 Content Prep Tool
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+
+      - name: Package Slack using IntuneWinAppUtil
+        shell: pwsh
+        run: |
+          .\IntuneWinAppUtil.exe -c ".\input" -s "SlackSetup.exe" -o ".\output" -q
+          $originalFileName = "output\SlackSetup.intunewin"
+          $newName = "Slack-win-x64-$env:SLACK_VERSION.intunewin"
+          Rename-Item -Path $originalFileName -NewName $newName -Force
+          Write-Host "Renamed $originalFileName to $newName"
+
+      - name: Upload Slack package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: slack-intunewin
+          path: output/*.intunewin
