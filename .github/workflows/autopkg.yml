@@ -18,12 +18,12 @@ jobs:
           echo "Repository root contents:"
           ls -la
           echo "Recipes folder contents:"
-          ls -la ./recipes
+          ls -la ./recipes || true # Add || true to prevent failure if folder is empty or not found
 
       - name: Clean AutoPkg cached recipe repositories
         run: |
           echo "Removing old AutoPkg recipe caches..."
-          rm -rf ~/Library/AutoPkg/RecipeRepos/*
+          rm -rf ~/Library/AutoPkg/RecipeRepos/* || true # Use || true to prevent failure if directory doesn't exist
           echo "Cache cleanup done."
 
       - name: Download and install AutoPkg
@@ -69,23 +69,50 @@ jobs:
       - name: Run VisualStudioCode.download.recipe with verbose output
         run: autopkg run VisualStudioCode.download.recipe --verbose
 
-      - name: Debug - List all files in AutoPkg Cache Directory (non-failing)
+      - name: Debug - List all files in AutoPkg Cache Directory
         run: |
           RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
+          
+          if [ -z "$RECIPE_CACHE_DIR" ]; then
+            echo "Error: AutoPkg CacheDir is empty or could not be read. AutoPkg might not be fully configured or initialized."
+            exit 1
+          fi
+
           echo "AutoPkg Cache Directory: $RECIPE_CACHE_DIR"
+          
+          if [ ! -d "$RECIPE_CACHE_DIR" ]; then
+            echo "Error: AutoPkg Cache Directory does not exist: $RECIPE_CACHE_DIR"
+            exit 1
+          fi
+
           echo "Listing directory contents:"
-          ls -la "$RECIPE_CACHE_DIR" || true
+          ls -la "$RECIPE_CACHE_DIR"
           echo "Listing all files recursively:"
-          find "$RECIPE_CACHE_DIR" -type f || true
+          find "$RECIPE_CACHE_DIR" -type f
 
       - name: Find downloaded artifact (.intunemac, .pkg, .dmg, or .zip)
         id: find-artifact
         run: |
           RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
+          
+          if [ -z "$RECIPE_CACHE_DIR" ]; then
+            echo "Error: AutoPkg CacheDir is empty for artifact search. AutoPkg might not be fully configured or initialized."
+            exit 1
+          fi
+
+          if [ ! -d "$RECIPE_CACHE_DIR" ]; then
+            echo "Error: AutoPkg Cache Directory does not exist for artifact search: $RECIPE_CACHE_DIR"
+            exit 1
+          fi
+
           ARTIFACT=$(find "$RECIPE_CACHE_DIR" -type f \( -name "*.intunemac" -o -name "*.pkg" -o -name "*.dmg" -o -name "*.zip" \) | head -n 1)
 
           if [ -z "$ARTIFACT" ]; then
             echo "::error ::No package artifact (.intunemac, .pkg, .dmg, .zip) found in cache directory."
+            # Also list cache directory contents for debugging if no artifact is found
+            echo "Contents of $RECIPE_CACHE_DIR for debugging:"
+            ls -la "$RECIPE_CACHE_DIR"
+            find "$RECIPE_CACHE_DIR" -type f
             exit 1
           fi
 
