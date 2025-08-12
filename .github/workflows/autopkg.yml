@@ -41,13 +41,21 @@ jobs:
 
       - name: Add AutoPkg recipe repositories
         run: |
+          # Remove possibly corrupted or stale cached repos
+          autopkg repo-delete com.github.autopkg.recipes || true
+          autopkg repo-delete com.github.valdore86.recipes || true
+
           # Add official AutoPkg recipes repo
           autopkg repo-add https://github.com/autopkg/recipes.git
+
+          # Add valdore86 recipes repo (needed for ParentRecipe)
+          autopkg repo-add https://github.com/valdore86-recipes/recipes.git
+
           # Add your custom local recipes folder
           autopkg repo-add ./recipes
-          
-          # List all available recipes to confirm inclusion
-          echo "Listing all AutoPkg recipes to verify custom recipe inclusion..."
+
+          # List all recipes to verify presence of needed recipes
+          echo "Listing all AutoPkg recipes after repo adds:"
           autopkg list-recipes
 
       - name: Debug - List recipes directory contents
