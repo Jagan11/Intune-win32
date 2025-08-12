@@ -25,53 +25,33 @@ jobs:
           echo "Downloaded AutoPkg installer size: $FILESIZE bytes"
 
           if [ "$FILESIZE" -lt 100000 ]; then
-            echo "Error: Downloaded installer package is too small, likely a failed download."
+            echo "Error: Downloaded installer package too small, likely a failed download."
             exit 1
           fi
 
           sudo installer -pkg autopkg.pkg -target /
           autopkg version
 
-      - name: Validate and add AutoPkg recipe repos
+      - name: Add AutoPkg recipe repositories
         run: |
-          set -e
-
-          add_repo() {
-            REPO_URL=$1
-            REPO_NAME=$(basename "$REPO_URL" .git)
-            echo "Checking access to $REPO_URL..."
-
-            # Simple check: try to ls-remote to verify repo availability
-            if git ls-remote "$REPO_URL" &> /dev/null; then
-              echo "Repo accessible: $REPO_URL"
-              # Remove previous cached repo if exists to avoid stale or corrupted cache
-              autopkg repo-delete "$REPO_NAME" || true
-              autopkg repo-add "$REPO_URL"
-            else
-              echo "::error ::Repository unreachable: $REPO_URL"
-              exit 1
-            fi
-          }
-
-          # Add official AutoPkg recipes repository
-          add_repo https://github.com/autopkg/recipes.git
-
-          # Add valdore86 community recipes repository
-          add_repo https://github.com/valdore86-recipes/recipes.git
-
-          # Add your custom local recipes folder - no remote URL check needed
-          echo "Adding local recipes folder at ./recipes"
+          # Clean any previous repo caches for a fresh start
+          autopkg repo-delete com.github.autopkg.recipes || true
           autopkg repo-delete ./recipes || true
+
+          # Add official AutoPkg recipes repo
+          autopkg repo-add https://github.com/autopkg/recipes.git
+
+          # Add your vendored local recipes repo
           autopkg repo-add ./recipes
 
-          echo "Listing all AutoPkg recipes after adding repos:"
+          echo "Listing all available recipes after adding repos:"
           autopkg list-recipes
 
-      - name: Debug - List local recipes folder and file
+      - name: Debug - List local recipes directory and display recipe content
         run: |
           echo "Contents of ./recipes folder:"
           ls -l ./recipes
-          echo "Showing VSCode.intunemac.recipe content:"
+          echo "Displaying VSCode.intunemac.recipe content:"
           cat ./recipes/VSCode.intunemac.recipe || echo "Recipe file missing or unreadable"
 
       - name: Set environment variable for custom processors
@@ -80,20 +60,20 @@ jobs:
       - name: Run VSCode.intunemac.recipe
         run: autopkg run VSCode.intunemac.recipe --verbose
 
-      - name: Find and set .intunemac artifact path
+      - name: Find .intunemac artifact and set as environment variable
         id: find-artifact
         run: |
           RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
-          echo "RECIPE_CACHE_DIR=$RECIPE_CACHE_DIR"
+          echo "AutoPkg cache directory: $RECIPE_CACHE_DIR"
 
           INTUNEMAC_FILE=$(find "$RECIPE_CACHE_DIR" -type f -name "*.intunemac" | head -n 1)
           if [ -z "$INTUNEMAC_FILE" ]; then
-            echo "::error ::No .intunemac file found in the cache directory."
+            echo "::error ::No .intunemac file found in cache directory."
             exit 1
           fi
 
           echo "INTUNEMAC_FILE=$INTUNEMAC_FILE" >> $GITHUB_ENV
-          echo "Found .intunemac file: $INTUNEMAC_FILE"
+          echo "Found .intunemac artifact at: $INTUNEMAC_FILE"
 
       - name: Upload .intunemac artifact
         uses: actions/upload-artifact@v4
