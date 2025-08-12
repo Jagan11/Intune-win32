@@ -93,34 +93,51 @@ jobs:
 
           echo "Found Slack DMG: $SLACK_DMG_PATH"
           
-          # Mount the DMG
-          DMG_MOUNT_OUTPUT=$(hdiutil attach "$SLACK_DMG_PATH" -nobrowse -mountpoint /Volumes/SlackAppMount 2>&1 || true)
-          MOUNT_POINT=$(echo "$DMG_MOUNT_OUTPUT" | grep '/Volumes/SlackAppMount' | awk '{print $NF}')
+          # Mount the DMG to a unique temporary mount point to avoid conflicts
+          TEMP_MOUNT_POINT="/private/tmp/SlackMount_$(uuidgen)"
+          mkdir -p "$TEMP_MOUNT_POINT" # Create the mount point directory
+          
+          DMG_MOUNT_OUTPUT=$(hdiutil attach "$SLACK_DMG_PATH" -nobrowse -mountpoint "$TEMP_MOUNT_POINT" 2>&1 || true)
+          # Verify mount point explicitly captured from hdiutil output
+          MOUNT_POINT=$(echo "$DMG_MOUNT_OUTPUT" | grep "$TEMP_MOUNT_POINT" | awk '{print $NF}')
 
           if [ -z "$MOUNT_POINT" ]; then
             echo "::error ::Failed to mount Slack DMG. Full hdiutil attach output:"
             echo "$DMG_MOUNT_OUTPUT"
+            rmdir "$TEMP_MOUNT_POINT" || true # Clean up empty mount point if failed
             exit 1
           fi
           echo "Mounted DMG at: $MOUNT_POINT"
 
-          # Define target directory for extracted app (e.g., directly in the recipe's cache folder)
+          # Define target directory for extracted app (inside the recipe's cache folder for persistence)
           EXTRACTED_APP_DIR="$RECIPE_CACHE_DIR/com.architrave.download.Slack/extracted_app"
           mkdir -p "$EXTRACTED_APP_DIR"
+          echo "Target extraction directory: $EXTRACTED_APP_DIR"
           
           # Copy the .app bundle from the mounted DMG to the extracted_app directory
           SLACK_APP_SOURCE="$MOUNT_POINT/Slack.app"
           if [ ! -d "$SLACK_APP_SOURCE" ]; then
             echo "::error ::Slack.app not found inside mounted DMG at $SLACK_APP_SOURCE. Contents of mount point:"
-            ls -la "$MOUNT_POINT" || true
+            ls -la "$MOUNT_POINT" || true # List contents for debugging
             exit 1
           fi
           
+          echo "Copying Slack.app from '$SLACK_APP_SOURCE' to '$EXTRACTED_APP_DIR/'..."
           cp -R "$SLACK_APP_SOURCE" "$EXTRACTED_APP_DIR/"
-          echo "Copied Slack.app to: $EXTRACTED_APP_DIR/Slack.app"
+          
+          # Verify copy operation
+          if [ ! -d "$EXTRACTED_APP_DIR/Slack.app" ]; then
+              echo "::error ::Failed to copy Slack.app to $EXTRACTED_APP_DIR/Slack.app."
+              ls -la "$EXTRACTED_APP_DIR" || true # Show contents of target dir if copy failed
+              exit 1
+          fi
+
+          echo "Copied Slack.app successfully to: $EXTRACTED_APP_DIR/Slack.app"
+          ls -la "$EXTRACTED_APP_DIR" # Show contents of extracted app dir for confirmation
           
           # Set the path to the extracted app as an environment variable for subsequent steps
           echo "SLACK_APP_PATH=$EXTRACTED_APP_DIR/Slack.app" >> $GITHUB_ENV
+          echo "SLACK_APP_PATH is now set to: $SLACK_APP_PATH" # Debug output
           echo "MOUNT_POINT=$MOUNT_POINT" >> $GITHUB_OUTPUT # Export mount point for unmount step
 
       - name: Unmount Slack DMG
