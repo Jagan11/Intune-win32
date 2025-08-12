@@ -13,11 +13,11 @@ jobs:
 
       - name: Show current working directory and recipes folder for debug
         run: |
-          echo "PWD:"
+          echo "Current working directory:"
           pwd
-          echo "Listing repo root contents:"
+          echo "Repository root contents:"
           ls -la
-          echo "Listing recipes folder contents:"
+          echo "Recipes folder contents:"
           ls -la ./recipes
 
       - name: Clean AutoPkg cached recipe repositories
@@ -32,7 +32,7 @@ jobs:
           curl -L -o autopkg.pkg https://github.com/autopkg/autopkg/releases/download/v2.7.5/AutoPkg-2.7.5.pkg
 
           if [ ! -f autopkg.pkg ]; then
-            echo "Error: AutoPkg installer not found!"
+            echo "Error: AutoPkg installer package missing!"
             exit 1
           fi
 
@@ -64,7 +64,7 @@ jobs:
         run: |
           echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
 
-      # Munki step skipped for now since MUNKI_REPO is not set
+      # Munki recipe step is omitted for now since MUNKI_REPO is not configured.
 
       - name: Run VisualStudioCode.download.recipe with verbose output
         run: autopkg run VisualStudioCode.download.recipe --verbose
@@ -72,8 +72,8 @@ jobs:
       - name: Debug - List all files in AutoPkg Cache Directory
         run: |
           RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
-          echo "AutoPkg CacheDir: $RECIPE_CACHE_DIR"
-          echo "Listing all files in cache directory for debugging:"
+          echo "AutoPkg Cache Directory: $RECIPE_CACHE_DIR"
+          echo "Listing all files in cache directory for troubleshooting:"
           find "$RECIPE_CACHE_DIR" -type f
 
       - name: Find downloaded artifact (.intunemac, .pkg, .dmg, or .zip)
@@ -83,9 +83,16 @@ jobs:
           ARTIFACT=$(find "$RECIPE_CACHE_DIR" -type f \( -name "*.intunemac" -o -name "*.pkg" -o -name "*.dmg" -o -name "*.zip" \) | head -n 1)
 
           if [ -z "$ARTIFACT" ]; then
-            echo "::error ::No package artifact (.intunemac, .pkg, .dmg, .zip) found in cache."
+            echo "::error ::No package artifact (.intunemac, .pkg, .dmg, .zip) found in cache directory."
             exit 1
           fi
 
           echo "Found package artifact: $ARTIFACT"
-          echo "ARTIFACT=$ARTIFACT
+          echo "ARTIFACT=$ARTIFACT" >> $GITHUB_ENV
+
+      - name: Upload the artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-package
+          path: ${{ env.ARTIFACT }}
+          retention-days: 7
