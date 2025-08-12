@@ -75,7 +75,8 @@ jobs:
       - name: Run Slack.download.recipe with verbose output
         # Execute the Slack.download.recipe. This recipe will download the latest Slack.app
         # and place it into AutoPkg's cache directory.
-        run: autopkg run Slack.download.recipe --verbose
+        # The '--force' flag automatically accepts any trust info changes or prompts.
+        run: autopkg run Slack.download.recipe --verbose --force
 
       - name: Debug - List all files in AutoPkg Cache Directory
         # This debug step lists the contents of the AutoPkg cache directory.
