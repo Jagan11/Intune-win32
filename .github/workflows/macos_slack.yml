@@ -25,16 +25,20 @@ jobs:
         id: mount
         run: |
           echo "Mounting Slack DMG..."
-          # Attach the DMG and capture the mount point.
-          # -nobrowse prevents it from appearing in Finder sidebar.
-          # -quiet suppresses verbose output.
-          # Use awk '{print $NF}' to get the last field on the line containing '/Volumes/', which is typically the mount point.
-          MOUNT_DIR=$(hdiutil attach output/Slack.dmg -nobrowse -quiet 2>&1 | grep '/Volumes/' | awk '{print $NF}')
+          # Attach the DMG and capture its full output.
+          # Removing -quiet to ensure all output is captured for debugging.
+          # Pipe stderr to stdout (2>&1) to capture potential errors.
+          DMG_ATTACH_OUTPUT=$(hdiutil attach output/Slack.dmg -nobrowse 2>&1)
+          
+          # Attempt to extract the mount directory from the captured output.
+          # Look for a line containing '/Volumes/' and extract the last field, which is typically the mount path.
+          MOUNT_DIR=$(echo "$DMG_ATTACH_OUTPUT" | grep '/Volumes/' | awk '{print $NF}')
+
           if [ -z "$MOUNT_DIR" ]; then
             echo "Error: Could not determine DMG mount directory."
-            # For debugging, print the full output of hdiutil attach if MOUNT_DIR is empty.
-            echo "hdiutil attach output:"
-            hdiutil attach output/Slack.dmg -nobrowse -quiet 2>&1
+            # Print the full output of hdiutil attach to help debug why the mount directory wasn't found.
+            echo "Full hdiutil attach output for debugging:"
+            echo "$DMG_ATTACH_OUTPUT"
             exit 1
           fi
           echo "MOUNT_DIR=$MOUNT_DIR" >> $GITHUB_OUTPUT
@@ -65,6 +69,5 @@ jobs:
         run: |
           echo "Unmounting Slack DMG..."
           # Detach the DMG using the captured mount directory.
-          # -quiet suppresses verbose output.
           # The MOUNT_DIR should be wrapped in quotes to handle spaces in path names.
           hdiutil detach "${{ steps.mount.outputs.MOUNT_DIR }}" -quiet || true # '|| true' ensures step doesn't fail the workflow if detach fails
