@@ -13,26 +13,38 @@ jobs:
 
     - name: Download Microsoft Edge PKG
       run: |
-        EDGE_VERSION="stable"
-        EDGE_URL="https://msedgesetup.azureedge.net/${EDGE_VERSION}/MicrosoftEdgeStable.pkg"
+        # Use a direct link to the universal macOS PKG installer for Microsoft Edge Stable.
+        # This link typically redirects to the latest stable universal installer.
+        EDGE_URL="https://go.microsoft.com/fwlink/?linkid=2093504"
+        echo "Downloading Microsoft Edge PKG from: $EDGE_URL"
+        # The -L flag handles redirects, which is important for this fwlink.
         curl -L $EDGE_URL -o output/MicrosoftEdgeStable.pkg
 
     - name: Expand PKG and extract bundle identifier
       run: |
         mkdir -p expanded_pkg
+        # Expand the downloaded .pkg file
         pkgutil --expand output/MicrosoftEdgeStable.pkg expanded_pkg
 
         cd expanded_pkg
+        # Check if the Payload file exists, which contains the actual application bundle
         if [ -f Payload ]; then
           mkdir payload_contents
-          # Payload is gzip+cpio archive
+          # The Payload file is a gzipped cpio archive; decompress and extract its contents
           cat Payload | gzip -d | cpio -idmv
-          # Find the first .app directory
+          # Find the first .app directory within the extracted payload
           APP_PATH=$(find payload_contents -name "*.app" -type d | head -n 1)
+          
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: No .app bundle found in the package payload."
+            exit 1
+          fi
+
           echo "Found app at $APP_PATH"
           echo "Bundle ID:"
+          # Use PlistBuddy to extract the CFBundleIdentifier from the app's Info.plist
           /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_PATH/Contents/Info.plist"
         else
-          echo "No Payload found in package."
+          echo "No Payload found in package. This indicates an unexpected package structure."
           exit 1
         fi
