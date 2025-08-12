@@ -74,10 +74,10 @@ jobs:
 
       - name: Update Slack.download.recipe trust info
         # This crucial step updates and accepts the trust info for the recipe.
-        # The '--force' flag is necessary for non-interactive execution.
+        # We pipe 'y' to the command to confirm non-interactively.
         run: |
           echo "Updating trust info for Slack.download.recipe..."
-          autopkg update-trust-info Slack.download.recipe --force
+          echo "y" | autopkg update-trust-info Slack.download.recipe
 
       - name: Run Slack.download.recipe with verbose output
         # Execute the Slack.download.recipe. This recipe will download the latest Slack.app
@@ -95,7 +95,7 @@ jobs:
           if [ -z "$RECIPE_CACHE_DIR" ]; then
             echo "Error: AutoPkg CacheDir is empty or could not be determined."
             exit 1
-          fi
+          F
 
           echo "AutoPkg Cache Directory: $RECIPE_CACHE_DIR"
           
