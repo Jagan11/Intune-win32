@@ -11,39 +11,95 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install AutoPkg
+      - name: Show current directory and recipes folder contents for debug
         run: |
+          echo "Current working directory:"
+          pwd
+          echo "Listing repository root contents:"
+          ls -la
+          echo "Listing ./recipes folder contents:"
+          ls -la ./recipes
+
+      - name: Clean AutoPkg cached recipe repos to avoid stale configurations
+        run: |
+          echo "Removing old cached AutoPkg recipe repositories..."
+          rm -rf ~/Library/AutoPkg/RecipeRepos/*
+          echo "Done cleanup."
+
+      - name: Download and install AutoPkg
+        run: |
+          echo "Downloading AutoPkg Installer..."
           curl -L -o autopkg.pkg https://github.com/autopkg/autopkg/releases/download/v2.7.5/AutoPkg-2.7.5.pkg
+
+          if [ ! -f autopkg.pkg ]; then
+            echo "Error: AutoPkg installer package not found!"
+            exit 1
+          fi
+
+          FILESIZE=$(stat -f%z autopkg.pkg)
+          echo "Downloaded package size: $FILESIZE bytes"
+
+          if [ "$FILESIZE" -lt 100000 ]; then
+            echo "Error: Downloaded installer package too small. Possible failed download."
+            exit 1
+          fi
+
+          echo "Installing AutoPkg..."
           sudo installer -pkg autopkg.pkg -target /
+          echo "AutoPkg version:"
           autopkg version
 
-      - name: Add AutoPkg repos
+      - name: Add AutoPkg recipe repositories
         run: |
-          autopkg repo-delete com.github.autopkg.recipes || true
+          echo "Adding official AutoPkg recipes repository..."
           autopkg repo-add https://github.com/autopkg/recipes.git
-          autopkg repo-delete ./recipes || true
+
+          echo "Adding local vendored recipes folder..."
           autopkg repo-add ./recipes
+
+          echo "Listing all available recipes:"
           autopkg list-recipes
+
+      - name: Debug - Show content of vendored recipes folder and sample recipe
+        run: |
+          echo "Contents of ./recipes folder:"
+          ls -la ./recipes
+          echo "Displaying VisualStudioCode.download.recipe content:"
+          cat ./recipes/VisualStudioCode.download.recipe || echo "Recipe file missing or unreadable"
+
+          echo "Displaying VisualStudioCode.munki.recipe content:"
+          cat ./recipes/VisualStudioCode.munki.recipe || echo "Recipe file missing or unreadable"
+
+      - name: Set environment variable for custom processors (if any)
+        run: echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
+
+      # We skip setting MUNKI_REPO env var here. Munki recipe may fail without it.
+      # You can enable Munki integration later by setting MUNKI_REPO accordingly.
 
       - name: Run VisualStudioCode.download.recipe
         run: autopkg run VisualStudioCode.download.recipe --verbose
 
-      - name: Run VisualStudioCode.munki.recipe
+      - name: Run VisualStudioCode.munki.recipe (may fail if MUNKI_REPO unset)
+        continue-on-error: true
         run: autopkg run VisualStudioCode.munki.recipe --verbose
 
-      - name: Find generated package artifact
+      - name: Find generated package artifact in AutoPkg CacheDir
         id: find-artifact
         run: |
           RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
-          echo "AutoPkg CacheDir: $RECIPE_CACHE_DIR"
-          ARTIFACT=$(find "$RECIPE_CACHE_DIR" -type f -name "*.pkg" -o -name "*.dmg" -o -name "*.intunemac" | head -n 1)
+          echo "AutoPkg Cache Directory: $RECIPE_CACHE_DIR"
+
+          ARTIFACT=$(find "$RECIPE_CACHE_DIR" -type f \( -name "*.intunemac" -o -name "*.pkg" -o -name "*.dmg" \) | head -n 1)
+
           if [ -z "$ARTIFACT" ]; then
-            echo "No artifact found!"
+            echo "::error ::No package artifact (.intunemac, .pkg, .dmg) found in AutoPkg cache directory."
             exit 1
           fi
+
+          echo "Package artifact found: $ARTIFACT"
           echo "ARTIFACT=$ARTIFACT" >> $GITHUB_ENV
 
-      - name: Upload artifact
+      - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
           name: vscode-package
