@@ -22,23 +22,15 @@ jobs:
           echo "$NODE_INDEX" | head -n 20 # Print first 20 lines for debugging
           echo "--- END DEBUG ---"
 
-          # Find the latest LTS version (where .lts is truthy, either true or a string codename)
-          # We sort versions numerically (-V) and take the last one to ensure we get the latest LTS.
+          # Find the latest LTS version
           LTS_VERSION_FULL=$(echo "$NODE_INDEX" | jq -r '.[] | select(.lts) | .version' | sort -V | tail -n 1)
           
           if [ -z "$LTS_VERSION_FULL" ]; then
             echo "Error: Could not determine latest LTS Node.js version from index.json."
-            # If the above fails, it means the index.json might not contain expected LTS data
-            # You could try a fallback for the latest general version if LTS is not found:
-            # LTS_VERSION_FULL=$(echo "$NODE_INDEX" | jq -r '.[0].version')
             exit 1
           fi
 
-          # Remove the 'v' prefix from the version for URL construction (if present, harmless otherwise)
           LTS_VERSION_CLEAN=${LTS_VERSION_FULL//v/}
-          
-          # Construct download URL for the macOS PKG installer (x64 for broader compatibility)
-          # This assumes the standard naming convention for macOS PKG installers from Node.js
           INSTALLER_FILENAME="node-${LTS_VERSION_FULL}-darwin-x64.pkg"
           DOWNLOAD_URL="https://nodejs.org/dist/${LTS_VERSION_FULL}/${INSTALLER_FILENAME}"
           
@@ -52,21 +44,62 @@ jobs:
 
       - name: Download Node.js PKG
         run: |
-          set -eux # Enable strict error checking and command tracing
+          set -eux
           curl -L "$NODEJS_DOWNLOAD_URL" -o "output/$NODEJS_INSTALLER_FILENAME"
           echo "Downloaded Node.js PKG: output/$NODEJS_INSTALLER_FILENAME"
 
-          # Add a size check to ensure the downloaded file is not too small (e.g., less than 10 MB)
-          # Use find with -printf %s for cross-platform size check in bytes
-          FILE_SIZE_BYTES=$(find "output/$NODEJS_INSTALLER_FILENAME" -printf "%s" | head -n 1)
-          MIN_EXPECTED_SIZE_BYTES=10000000 # 10 MB in bytes (adjust if needed)
+          # Size check (10 MB minimum)
+          FILE_SIZE_BYTES=$(stat -f%z "output/$NODEJS_INSTALLER_FILENAME")
+          MIN_EXPECTED_SIZE_BYTES=10000000
 
           if [ "$FILE_SIZE_BYTES" -lt "$MIN_EXPECTED_SIZE_BYTES" ]; then
-            echo "Error: Downloaded PKG file is too small ($FILE_SIZE_BYTES bytes). Expected at least $MIN_EXPECTED_SIZE_BYTES bytes. Download likely failed."
+            echo "Error: Downloaded PKG too small ($FILE_SIZE_BYTES bytes)"
             exit 1
           else
-            echo "Downloaded PKG size: $FILE_SIZE_BYTES bytes (looks good)."
+            echo "Downloaded PKG size: $FILE_SIZE_BYTES bytes"
           fi
+
+      - name: Extract Node.js PKG bundle identifier and version
+        run: |
+          set -eux
+          PKG_PATH="output/$NODEJS_INSTALLER_FILENAME"
+          WORKDIR="output/pkg_extract"
+
+          mkdir -p "$WORKDIR"
+          
+          # Expand the pkg to a temp folder
+          pkgutil --expand-full "$PKG_PATH" "$WORKDIR/expanded"
+
+          # Find the Distribution file or Info.plist inside the payload
+          # Node.js installer contains a Payload archive inside the expanded folder
+          PAYLOAD_PATH=$(find "$WORKDIR/expanded" -name "Payload" | head -n 1)
+          
+          if [ -z "$PAYLOAD_PATH" ]; then
+            echo "Error: Could not find Payload inside PKG"
+            exit 1
+          fi
+          
+          # Extract Payload contents (cpio archive)
+          mkdir -p "$WORKDIR/payload_extract"
+          cd "$WORKDIR/payload_extract"
+          cat "$PAYLOAD_PATH" | gunzip -dc | cpio -id
+
+          # Read Info.plist for bundle id and version from Node.js app (inside /usr/local/bin or relevant path)
+          # Node.js pkg doesn't include a typical app bundle but has version info in Distribution file
+
+          DISTRIBUTION_FILE="$WORKDIR/expanded/Distribution"
+          if [ -f "$DISTRIBUTION_FILE" ]; then
+            # Extract version info from Distribution file XML content
+            VERSION=$(grep -oPm1 "(?<=<pkg-info version=\")[^\"]+" "$DISTRIBUTION_FILE")
+            echo "NODEJS_PKG_VERSION=$VERSION"
+            echo "NODEJS_PKG_VERSION=$VERSION" >> $GITHUB_ENV
+          else
+            echo "Warning: Distribution file not found; cannot extract version."
+            echo "NODEJS_PKG_VERSION=unknown" >> $GITHUB_ENV
+          fi
+
+          # No formal bundle identifier for Node.js pkg, just use a fixed string
+          echo "NODEJS_BUNDLE_ID=org.nodejs.pkg" >> $GITHUB_ENV
 
       - name: Upload Node.js PKG as artifact
         uses: actions/upload-artifact@v4
