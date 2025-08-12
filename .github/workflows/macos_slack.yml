@@ -13,13 +13,15 @@ jobs:
 
       - name: Download Slack DMG
         run: |
-          SLACK_URL="https://downloads.slack-edge.com/releases/macos/Slack-latest.dmg"
+          # Using a more reliable direct download URL for the Slack macOS Universal DMG.
+          # This URL typically provides the full DMG file directly.
+          SLACK_URL="https://slack.com/ssb/download-osx-universal"
           echo "Downloading Slack from $SLACK_URL"
+          # -L flag follows redirects, crucial for this type of URL.
           curl -L "$SLACK_URL" -o output/Slack.dmg
           if [ ! -s output/Slack.dmg ]; then
-            echo "Slack DMG download failed or empty!"
+            echo "Error: Slack DMG download failed or file is empty!"
             exit 1
-          (
           fi
 
       - name: Mount Slack DMG
