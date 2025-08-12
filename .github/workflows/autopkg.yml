@@ -72,12 +72,11 @@ jobs:
 
       - name: Debug - List all files in AutoPkg Cache Directory
         run: |
-          # Make the autopkg pref-read more resilient to prevent early exit if it errors
-          RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir 2>&1 || echo "")
+          # Directly use the standard AutoPkg Cache Directory path
+          RECIPE_CACHE_DIR="$HOME/Library/AutoPkg/Cache"
           
           if [ -z "$RECIPE_CACHE_DIR" ]; then
-            echo "Error: AutoPkg CacheDir is empty or could not be read. AutoPkg might not be fully configured or initialized. Full output of 'autopkg pref-read CacheDir':"
-            autopkg pref-read CacheDir 2>&1 # Print verbose output for direct debugging
+            echo "Error: AutoPkg CacheDir is empty or could not be determined."
             exit 1
           fi
 
@@ -85,10 +84,11 @@ jobs:
           
           if [ ! -d "$RECIPE_CACHE_DIR" ]; then
             echo "Error: AutoPkg Cache Directory does not exist: $RECIPE_CACHE_DIR"
-            exit 1
+            # It might not exist until the recipe runs and creates it. Not a critical error here.
+            # exit 1 # Removed exit 1 here, as it's a debug step
           fi
 
-          echo "Listing directory contents:"
+          echo "Listing directory contents (might be empty if recipe just ran):"
           ls -la "$RECIPE_CACHE_DIR" || true # Added || true here
           echo "Listing all files recursively:"
           find "$RECIPE_CACHE_DIR" -type f || true # Added || true here
@@ -96,12 +96,11 @@ jobs:
       - name: Find downloaded artifact (.app, .intunemac, .pkg, .dmg, or .zip)
         id: find-artifact
         run: |
-          # Make the autopkg pref-read more resilient here as well
-          RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir 2>&1 || echo "")
+          # Directly use the standard AutoPkg Cache Directory path
+          RECIPE_CACHE_DIR="$HOME/Library/AutoPkg/Cache"
           
           if [ -z "$RECIPE_CACHE_DIR" ]; then
-            echo "Error: AutoPkg CacheDir is empty for artifact search. AutoPkg might not be fully configured or initialized. Full output of 'autopkg pref-read CacheDir':"
-            autopkg pref-read CacheDir 2>&1 # Print verbose output for direct debugging
+            echo "Error: AutoPkg CacheDir is empty for artifact search. AutoPkg might not be fully configured or initialized."
             exit 1
           fi
 
@@ -110,7 +109,7 @@ jobs:
             exit 1
           fi
 
-          # Corrected: Look for 'Visual Studio Code.app' directly as it's the unarchived artifact.
+          # Look for 'Visual Studio Code.app' directly as it's the unarchived artifact.
           # We include other types as a fallback/general purpose, but prioritize the .app.
           ARTIFACT=$(find "$RECIPE_CACHE_DIR" -type d -name "Visual Studio Code.app" | head -n 1)
 
