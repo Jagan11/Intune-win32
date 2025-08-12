@@ -28,9 +28,13 @@ jobs:
           # Attach the DMG and capture the mount point.
           # -nobrowse prevents it from appearing in Finder sidebar.
           # -quiet suppresses verbose output.
-          MOUNT_DIR=$(hdiutil attach output/Slack.dmg -nobrowse -quiet | grep '/Volumes/' | awk '{print $3}')
+          # Use awk '{print $NF}' to get the last field on the line containing '/Volumes/', which is typically the mount point.
+          MOUNT_DIR=$(hdiutil attach output/Slack.dmg -nobrowse -quiet 2>&1 | grep '/Volumes/' | awk '{print $NF}')
           if [ -z "$MOUNT_DIR" ]; then
             echo "Error: Could not determine DMG mount directory."
+            # For debugging, print the full output of hdiutil attach if MOUNT_DIR is empty.
+            echo "hdiutil attach output:"
+            hdiutil attach output/Slack.dmg -nobrowse -quiet 2>&1
             exit 1
           fi
           echo "MOUNT_DIR=$MOUNT_DIR" >> $GITHUB_OUTPUT
