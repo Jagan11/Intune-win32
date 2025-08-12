@@ -69,12 +69,14 @@ jobs:
       - name: Run VisualStudioCode.download.recipe with verbose output
         run: autopkg run VisualStudioCode.download.recipe --verbose
 
-      - name: Debug - List all files in AutoPkg Cache Directory
+      - name: Debug - List all files in AutoPkg Cache Directory (non-failing)
         run: |
           RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
           echo "AutoPkg Cache Directory: $RECIPE_CACHE_DIR"
-          echo "Listing all files in cache directory for troubleshooting:"
-          find "$RECIPE_CACHE_DIR" -type f
+          echo "Listing directory contents:"
+          ls -la "$RECIPE_CACHE_DIR" || true
+          echo "Listing all files recursively:"
+          find "$RECIPE_CACHE_DIR" -type f || true
 
       - name: Find downloaded artifact (.intunemac, .pkg, .dmg, or .zip)
         id: find-artifact
