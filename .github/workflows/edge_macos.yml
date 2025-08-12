@@ -1,44 +1,48 @@
-name: Download Microsoft Edge for macOS
+name: Package Microsoft Edge for Intune (macOS)
 
 on:
   workflow_dispatch:
 
 jobs:
-  download-edge:
+  build:
     runs-on: macos-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Create output directory
-        run: mkdir -p output
+      - name: Prepare workspace
+        run: |
+          echo "Cleaning old files..."
+          rm -rf output
+          mkdir -p output/pkg
 
       - name: Download Microsoft Edge PKG
         run: |
           echo "Downloading Microsoft Edge PKG..."
           curl -L "https://go.microsoft.com/fwlink/?linkid=2093504" -o output/MicrosoftEdge.pkg
 
-      - name: Extract PKG contents
+      - name: Extract PKG
         run: |
-          mkdir -p output/pkg
+          echo "Extracting PKG..."
+          rm -rf output/pkg   # Ensure no existing folder causes 'File exists' error
           pkgutil --expand-full output/MicrosoftEdge.pkg output/pkg
 
-      - name: Find and extract Edge.app
+      - name: Download Intune App Wrapping Tool
         run: |
-          PAYLOAD_PKG=$(find output/pkg -name "*.pkg" | head -n 1)
-          mkdir -p output/app
-          pkgutil --expand-full "$PAYLOAD_PKG" output/app_pkg
-          PAYLOAD_FILE=$(find output/app_pkg -name "Payload" | head -n 1)
-          tar -xvf "$PAYLOAD_FILE" -C output/app
+          echo "Downloading Intune App Wrapping Tool..."
+          curl -L "https://github.com/msintuneappsdk/intune-app-wrapping-tool-mac/releases/latest/download/intune-app-wrapping-tool-mac.zip" -o output/wrapper.zip
+          unzip -o output/wrapper.zip -d output
 
-      - name: Get Bundle ID and Version
+      - name: Wrap PKG into .intunemac
         run: |
-          EDGE_APP_PATH=$(find output/app -name "Microsoft Edge.app" -type d | head -n 1)
-          if [ -z "$EDGE_APP_PATH" ]; then
-            echo "Microsoft Edge.app not found!"
-            exit 1
-          fi
-          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$EDGE_APP_PATH/Contents/Info.plist")
-          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$EDGE_APP_PATH/Contents/Info.plist")
-          echo "Bundle ID: $BUNDLE_ID"
-          echo "Version: $VERSION"
+          echo "Wrapping PKG into .intunemac..."
+          chmod +x output/intune-app-wrapping-tool-mac
+          ./output/intune-app-wrapping-tool-mac \
+            -c output/MicrosoftEdge.pkg \
+            -o output/MicrosoftEdge.intunemac
+
+      - name: Upload packaged app as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MicrosoftEdge-intunemac
+          path: output/MicrosoftEdge.intunemac
