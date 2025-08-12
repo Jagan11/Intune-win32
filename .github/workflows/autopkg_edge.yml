@@ -74,9 +74,9 @@ jobs:
           AUTOPKG_OUTPUT=$(autopkg run MSEdge.download.recipe --verbose 2>&1)
           echo "$AUTOPKG_OUTPUT" # Print full output for debugging
 
-          # Extract the download path from the AutoPkg output.
-          # This pattern looks for "Download Path" followed by whitespace and then captures the actual path.
-          EDGE_INSTALLER_PATH=$(echo "$AUTOPKG_OUTPUT" | grep -A 1 "Download Path" | tail -n 1 | xargs)
+          # Extract the download path from the AutoPkg output more reliably.
+          # We look for "Download Path", take the next TWO lines, and then the last one (which is the path).
+          EDGE_INSTALLER_PATH=$(echo "$AUTOPKG_OUTPUT" | grep -A 2 "Download Path" | tail -n 1 | xargs)
 
           if [ -z "$EDGE_INSTALLER_PATH" ]; then
             echo "::error ::Could not extract Microsoft Edge PKG installer path from AutoPkg output."
