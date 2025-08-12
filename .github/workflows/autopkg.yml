@@ -46,8 +46,16 @@ jobs:
           # Add your custom local recipes folder
           autopkg repo-add ./recipes
           
-          # List all available recipes to confirm
+          # List all available recipes to confirm inclusion
+          echo "Listing all AutoPkg recipes to verify custom recipe inclusion..."
           autopkg list-recipes
+
+      - name: Debug - List recipes directory contents
+        run: |
+          echo "Contents of recipes folder:"
+          ls -l ./recipes
+          echo "Showing VSCode.intunemac.recipe content:"
+          cat ./recipes/VSCode.intunemac.recipe || echo "VSCode.intunemac.recipe not found or unreadable"
 
       - name: Set environment variable for custom processors
         run: echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
@@ -55,17 +63,20 @@ jobs:
       - name: Run VSCode.intunemac.recipe
         run: autopkg run VSCode.intunemac.recipe --verbose
 
-      - name: Find and upload .intunemac artifact
+      - name: Find .intunemac artifact and set environment variable
         id: find-artifact
         run: |
           RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
           echo "RECIPE_CACHE_DIR=$RECIPE_CACHE_DIR"
-          INTUNEMAC_FILE=$(find "$RECIPE_CACHE_DIR" -name "*.intunemac" | head -n 1)
+
+          INTUNEMAC_FILE=$(find "$RECIPE_CACHE_DIR" -type f -name "*.intunemac" | head -n 1)
           if [ -z "$INTUNEMAC_FILE" ]; then
-            echo "No .intunemac file found!"
+            echo "Error: No .intunemac file found in the cache directory!"
             exit 1
           fi
+
           echo "INTUNEMAC_FILE=$INTUNEMAC_FILE" >> $GITHUB_ENV
+          echo "Found .intunemac file: $INTUNEMAC_FILE"
 
       - name: Upload .intunemac artifact
         uses: actions/upload-artifact@v4
