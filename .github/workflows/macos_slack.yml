@@ -1,10 +1,10 @@
-name: Download Slack DMG and Extract Bundle ID
+name: Download and Extract Slack App with Bundle ID
 
 on:
   workflow_dispatch:
 
 jobs:
-  slack-dmg:
+  download-slack:
     runs-on: macos-latest
 
     steps:
@@ -13,9 +13,13 @@ jobs:
 
     - name: Download Slack DMG
       run: |
-        SLACK_URL="https://downloads.slack-edge.com/releases/macos/4.34.152/prod/x64/Slack-4.34.152-macOS.dmg"
+        SLACK_URL="https://downloads.slack-edge.com/releases/macos/Slack-latest.dmg"
         echo "Downloading Slack from $SLACK_URL"
         curl -L "$SLACK_URL" -o output/Slack.dmg
+        if [ ! -s output/Slack.dmg ]; then
+          echo "Slack DMG download failed or file is empty."
+          exit 1
+        fi
 
     - name: Mount Slack DMG
       id: mount
@@ -26,19 +30,21 @@ jobs:
 
     - name: Copy Slack.app to output directory
       run: |
+        echo "Copying Slack.app from mounted volume..."
         cp -R "${{ steps.mount.outputs.MOUNT_DIR }}/Slack.app" output/
 
     - name: Unmount Slack DMG
+      if: always()
       run: |
         echo "Unmounting Slack DMG..."
         hdiutil detach "${{ steps.mount.outputs.MOUNT_DIR }}" -quiet
 
-    - name: Extract Bundle Identifier from Slack.app
+    - name: Extract Slack Bundle ID
       run: |
         /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" output/Slack.app/Contents/Info.plist
 
-    - name: Upload Slack.app and output files
+    - name: Upload Slack app artifact
       uses: actions/upload-artifact@v4
       with:
-        name: slack-macos-app
+        name: slack-app
         path: output/Slack.app
