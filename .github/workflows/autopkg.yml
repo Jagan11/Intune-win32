@@ -39,12 +39,15 @@ jobs:
           sudo installer -pkg autopkg.pkg -target /
           autopkg version
 
-      - name: Add AutoPkg recipe repos
+      - name: Add AutoPkg recipe repositories
         run: |
-          # Add official AutoPkg community recipes
+          # Add official AutoPkg recipes repo
           autopkg repo-add https://github.com/autopkg/recipes.git
-          # Add your custom recipes from the checked out repo
+          # Add your custom local recipes folder
           autopkg repo-add ./recipes
+          
+          # List all available recipes to confirm
+          autopkg list-recipes
 
       - name: Set environment variable for custom processors
         run: echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
