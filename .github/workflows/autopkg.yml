@@ -55,7 +55,8 @@ jobs:
           autopkg repo-add https://github.com/autopkg/recipes.git
 
           echo "Adding local vendored recipes folder..."
-          autopkg repo-add ./recipes
+          # Corrected: Use 'file://' prefix for local recipe repositories
+          autopkg repo-add "file://$(pwd)/recipes"
 
           echo "Listing all recipes to confirm..."
           autopkg list-recipes
@@ -90,7 +91,7 @@ jobs:
           echo "Listing all files recursively:"
           find "$RECIPE_CACHE_DIR" -type f
 
-      - name: Find downloaded artifact (.intunemac, .pkg, .dmg, or .zip)
+      - name: Find downloaded artifact (.app, .intunemac, .pkg, .dmg, or .zip)
         id: find-artifact
         run: |
           RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
@@ -105,10 +106,18 @@ jobs:
             exit 1
           fi
 
-          ARTIFACT=$(find "$RECIPE_CACHE_DIR" -type f \( -name "*.intunemac" -o -name "*.pkg" -o -name "*.dmg" -o -name "*.zip" \) | head -n 1)
+          # Corrected: Look for 'Visual Studio Code.app' directly as it's the unarchived artifact.
+          # We include other types as a fallback/general purpose, but prioritize the .app.
+          ARTIFACT=$(find "$RECIPE_CACHE_DIR" -type d -name "Visual Studio Code.app" | head -n 1)
+
+          # Fallback for other common package types if .app not found directly
+          if [ -z "$ARTIFACT" ]; then
+            ARTIFACT=$(find "$RECIPE_CACHE_DIR" -type f \( -name "*.intunemac" -o -name "*.pkg" -o -name "*.dmg" -o -name "*.zip" \) | head -n 1)
+          fi
+
 
           if [ -z "$ARTIFACT" ]; then
-            echo "::error ::No package artifact (.intunemac, .pkg, .dmg, .zip) found in cache directory."
+            echo "::error ::No package artifact (.app, .intunemac, .pkg, .dmg, .zip) found in cache directory."
             # Also list cache directory contents for debugging if no artifact is found
             echo "Contents of $RECIPE_CACHE_DIR for debugging:"
             ls -la "$RECIPE_CACHE_DIR"
