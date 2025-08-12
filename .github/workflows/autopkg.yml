@@ -87,9 +87,9 @@ jobs:
           fi
 
           echo "Listing directory contents:"
-          ls -la "$RECIPE_CACHE_DIR"
+          ls -la "$RECIPE_CACHE_DIR" || true # Added || true here
           echo "Listing all files recursively:"
-          find "$RECIPE_CACHE_DIR" -type f
+          find "$RECIPE_CACHE_DIR" -type f || true # Added || true here
 
       - name: Find downloaded artifact (.app, .intunemac, .pkg, .dmg, or .zip)
         id: find-artifact
