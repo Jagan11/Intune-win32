@@ -1,40 +1,38 @@
-name: Download and Inspect macOS Edge PKG
+name: Extract Edge PKG Bundle ID
 
 on:
-  workflow_dispatch:  # manual trigger
+  workflow_dispatch:
 
 jobs:
-  download-edge-pkg:
+  extract-bundle-id:
     runs-on: macos-latest
 
     steps:
-    - name: Checkout repo
-      uses: actions/checkout@v3
-
     - name: Create output directory
       run: mkdir -p output
 
     - name: Download Microsoft Edge PKG
       run: |
         EDGE_VERSION="stable"
-        # Direct download URL for stable macOS pkg (update URL if needed)
-        EDGE_PKG_URL="https://msedgesetup.azureedge.net/stable/MicrosoftEdgeStable.pkg"
-        echo "Downloading Microsoft Edge PKG from $EDGE_PKG_URL"
-        curl -L "$EDGE_PKG_URL" -o output/MicrosoftEdgeStable.pkg
+        EDGE_URL="https://msedgesetup.azureedge.net/${EDGE_VERSION}/MicrosoftEdgeStable.pkg"
+        curl -L $EDGE_URL -o output/MicrosoftEdgeStable.pkg
 
-    - name: Check downloaded PKG info (bundle ID etc.)
+    - name: Expand PKG and extract bundle identifier
       run: |
-        pkgutil --pkg-info output/MicrosoftEdgeStable.pkg || echo "Failed to read pkg info"
+        mkdir -p expanded_pkg
+        pkgutil --expand output/MicrosoftEdgeStable.pkg expanded_pkg
 
-    - name: Extract bundle ID from installed app (if installed)
-      run: |
-        # Just for demonstration, if app installed at standard location
-        if [ -d "/Applications/Microsoft Edge.app" ]; then
-          echo "Bundle ID of installed Edge app:"
-          defaults read "/Applications/Microsoft Edge.app/Contents/Info.plist" CFBundleIdentifier
+        cd expanded_pkg
+        if [ -f Payload ]; then
+          mkdir payload_contents
+          # Payload is gzip+cpio archive
+          cat Payload | gzip -d | cpio -idmv
+          # Find the first .app directory
+          APP_PATH=$(find payload_contents -name "*.app" -type d | head -n 1)
+          echo "Found app at $APP_PATH"
+          echo "Bundle ID:"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_PATH/Contents/Info.plist"
         else
-          echo "Microsoft Edge.app not installed on runner."
+          echo "No Payload found in package."
+          exit 1
         fi
-
-    - name: List output directory files
-      run: ls -lh output
