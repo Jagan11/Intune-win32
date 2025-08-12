@@ -75,7 +75,8 @@ jobs:
         id: find_edge_installer
         run: |
           RECIPE_CACHE_DIR="$HOME/Library/AutoPkg/Cache"
-          # The MSEdge.download.recipe typically downloads a .pkg file.
+          # The MSEdge.download.recipe typically downloads a .pkg file into a subfolder.
+          # We perform a recursive find to ensure it's located wherever it lands.
           EDGE_INSTALLER_PATH=$(find "$RECIPE_CACHE_DIR" -name "MicrosoftEdge*.pkg" -type f | head -n 1)
 
           if [ -z "$EDGE_INSTALLER_PATH" ]; then
@@ -93,22 +94,6 @@ jobs:
         id: extract_info
         # Use pkgutil to extract the bundle ID from the PKG, and then PlistBuddy for version.
         run: |
-          # Use pkgutil to find the app bundle within the PKG
-          # This assumes the PKG installs Microsoft Edge.app to /Applications
-          # For a PKG, we can't directly use PlistBuddy on the PKG itself,
-          # so we'll assume the installed app's Info.plist contains the info.
-          # As a fallback for direct PKG info, we'll extract after a dummy install or get from receipt if available.
-
-          # First, try to get info if the PKG itself has an embedded Info.plist (less common)
-          # Or, extract a temporary copy of the app for info extraction.
-          # A more reliable method for PKG is to get info AFTER it would be installed,
-          # or rely on recipe output. Since we need it pre-upload, we'll simulate finding it.
-
-          # For AutoPkg downloaded PKGs, the recipe typically populates recipe variables.
-          # We can extract details from the PKG itself without installing it.
-          # pkgutil --info-plist is not reliable for direct CFBundleIdentifier.
-          # We'll use the Installer.pkg.recipe pattern: create a dummy install to extract Info.plist.
-
           # Create a temporary installation directory
           TEMP_INSTALL_DIR="/private/tmp/EdgeInstallTemp_$(uuidgen)"
           mkdir -p "$TEMP_INSTALL_DIR"
