@@ -23,9 +23,9 @@ jobs:
     - name: Expand PKG and extract bundle identifier
       run: |
         # Clean up any previous expansion directory to prevent "File exists" errors
+        # pkgutil --expand requires the destination directory to *not* exist.
         rm -rf expanded_pkg
-        mkdir -p expanded_pkg
-        # Expand the downloaded .pkg file
+        # Expand the downloaded .pkg file. pkgutil will create 'expanded_pkg' itself.
         pkgutil --expand output/MicrosoftEdgeStable.pkg expanded_pkg
 
         cd expanded_pkg
