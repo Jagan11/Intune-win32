@@ -11,6 +11,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      - name: Show current directory and recipes folder for debug
+        run: |
+          echo "Current working directory:"
+          pwd
+          echo "Listing repository root contents:"
+          ls -lah
+          echo "Listing ./recipes folder contents:"
+          ls -lah ./recipes
+
+      - name: Clean up AutoPkg recipe repository caches
+        run: |
+          echo "Removing all cached AutoPkg RecipeRepos to avoid stale or corrupted repo cache..."
+          rm -rf ~/Library/AutoPkg/RecipeRepos/*
+          echo "Listing RecipeRepos directory after cleanup:"
+          ls -la ~/Library/AutoPkg/RecipeRepos || echo "No RecipeRepos directory found"
+
       - name: Download and install AutoPkg
         run: |
           echo "Downloading AutoPkg installer..."
@@ -25,7 +41,7 @@ jobs:
           echo "Downloaded AutoPkg installer size: $FILESIZE bytes"
 
           if [ "$FILESIZE" -lt 100000 ]; then
-            echo "Error: Downloaded installer package too small, likely a failed download."
+            echo "Error: Downloaded installer package is too small, likely a failed download."
             exit 1
           fi
 
@@ -34,41 +50,37 @@ jobs:
 
       - name: Add AutoPkg recipe repositories
         run: |
-          # Clean any previous repo caches for a fresh start
-          autopkg repo-delete com.github.autopkg.recipes || true
-          autopkg repo-delete ./recipes || true
-
-          # Add official AutoPkg recipes repo
+          echo "Adding official AutoPkg recipes repo..."
           autopkg repo-add https://github.com/autopkg/recipes.git
 
-          # Add your vendored local recipes repo
+          echo "Adding local vendored recipes folder (./recipes)..."
           autopkg repo-add ./recipes
 
-          echo "Listing all available recipes after adding repos:"
+          echo "Listing all AutoPkg recipes after adding repos to verify..."
           autopkg list-recipes
 
-      - name: Debug - List local recipes directory and display recipe content
+      - name: Debug - Show vendored recipes folder and example recipe file
         run: |
           echo "Contents of ./recipes folder:"
-          ls -l ./recipes
+          ls -la ./recipes
           echo "Displaying VSCode.intunemac.recipe content:"
           cat ./recipes/VSCode.intunemac.recipe || echo "Recipe file missing or unreadable"
 
       - name: Set environment variable for custom processors
         run: echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
 
-      - name: Run VSCode.intunemac.recipe
+      - name: Run VSCode.intunemac.recipe with verbose output
         run: autopkg run VSCode.intunemac.recipe --verbose
 
-      - name: Find .intunemac artifact and set as environment variable
+      - name: Find .intunemac artifact and set environment variable
         id: find-artifact
         run: |
           RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
-          echo "AutoPkg cache directory: $RECIPE_CACHE_DIR"
+          echo "AutoPkg cache directory is: $RECIPE_CACHE_DIR"
 
           INTUNEMAC_FILE=$(find "$RECIPE_CACHE_DIR" -type f -name "*.intunemac" | head -n 1)
           if [ -z "$INTUNEMAC_FILE" ]; then
-            echo "::error ::No .intunemac file found in cache directory."
+            echo "::error ::No .intunemac artifact found in AutoPkg cache directory."
             exit 1
           fi
 
