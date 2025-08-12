@@ -72,17 +72,14 @@ jobs:
         run: |
           echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
 
-      - name: Update Slack.download.recipe trust info
-        # This crucial step updates and accepts the trust info for the recipe.
-        # We pipe 'y' to the command to confirm non-interactively.
-        run: |
-          echo "Updating trust info for Slack.download.recipe..."
-          echo "y" | autopkg update-trust-info Slack.download.recipe
+      # Removed the 'Update Slack.download.recipe trust info' step.
+      # This recipe is located in your local 'recipes' folder, not as an override,
+      # so 'update-trust-info' is not applicable and causes unnecessary output.
+      # AutoPkg will proceed with a warning if trust info is missing, which is fine for automation.
 
       - name: Run Slack.download.recipe with verbose output
         # Execute the Slack.download.recipe. This recipe will download the latest Slack.app
         # and place it into AutoPkg's cache directory.
-        # The '--force' flag was removed as it is not supported for 'autopkg run' in AutoPkg 2.7.5.
         run: autopkg run Slack.download.recipe --verbose
 
       - name: Debug - List all files in AutoPkg Cache Directory
@@ -95,7 +92,7 @@ jobs:
           if [ -z "$RECIPE_CACHE_DIR" ]; then
             echo "Error: AutoPkg CacheDir is empty or could not be determined."
             exit 1
-          F
+          fi # Fixed syntax: changed 'F' to 'fi'
 
           echo "AutoPkg Cache Directory: $RECIPE_CACHE_DIR"
           
@@ -125,6 +122,8 @@ jobs:
           fi
 
           # Find the 'Slack.app' directory. This is the unarchived application bundle.
+          # Note: Slack.dmg is downloaded, but AutoPkg extracts the .app from it.
+          # So we look for the .app here.
           SLACK_APP_PATH=$(find "$RECIPE_CACHE_DIR" -type d -name "Slack.app" | head -n 1)
 
           if [ -z "$SLACK_APP_PATH" ]; then
