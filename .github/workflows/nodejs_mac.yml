@@ -8,98 +8,62 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Create directories
-        run: |
-          mkdir -p input output
-      
-      - name: Get latest Node.js LTS version and download URL
-        run: |
-          set -eux # Enable strict error checking and command tracing
+        run: mkdir -p input output
 
-          # Fetch Node.js version information from nodejs.org API
+      - name: Get latest Node.js LTS version and download PKG (try arm64 then x64)
+        run: |
+          set -eux
+
+          # Fetch Node.js version info
           NODE_INDEX=$(curl -s "https://nodejs.org/dist/index.json")
-          
-          echo "--- DEBUG: Raw Node.js index.json (first 20 lines) ---"
-          echo "$NODE_INDEX" | head -n 20 # Print first 20 lines for debugging
-          echo "--- END DEBUG ---"
-
-          # Find the latest LTS version
           LTS_VERSION_FULL=$(echo "$NODE_INDEX" | jq -r '.[] | select(.lts) | .version' | sort -V | tail -n 1)
-          
           if [ -z "$LTS_VERSION_FULL" ]; then
-            echo "Error: Could not determine latest LTS Node.js version from index.json."
+            echo "Error: Could not determine latest LTS Node.js version."
+            exit 1
+          fi
+          echo "Found Node.js LTS version: $LTS_VERSION_FULL"
+
+          # Prepare download URLs for both archs
+          ARM64_PKG="node-${LTS_VERSION_FULL}-darwin-arm64.pkg"
+          X64_PKG="node-${LTS_VERSION_FULL}-darwin-x64.pkg"
+
+          ARM64_URL="https://nodejs.org/dist/${LTS_VERSION_FULL}/${ARM64_PKG}"
+          X64_URL="https://nodejs.org/dist/${LTS_VERSION_FULL}/${X64_PKG}"
+
+          mkdir -p output
+
+          # Try to download ARM64 PKG first
+          echo "Trying to download ARM64 package: $ARM64_URL"
+          if curl --fail -L "$ARM64_URL" -o "output/$ARM64_PKG"; then
+            DOWNLOAD_URL=$ARM64_URL
+            INSTALLER_FILENAME=$ARM64_PKG
+            echo "Downloaded ARM64 package."
+          else
+            echo "ARM64 package not found, trying x64 package..."
+            if curl --fail -L "$X64_URL" -o "output/$X64_PKG"; then
+              DOWNLOAD_URL=$X64_URL
+              INSTALLER_FILENAME=$X64_PKG
+              echo "Downloaded x64 package."
+            else
+              echo "Error: Neither ARM64 nor x64 Node.js PKG found for version $LTS_VERSION_FULL"
+              exit 1
+            fi
+          fi
+
+          # Check file size (minimum 10 MB)
+          FILE_SIZE_BYTES=$(stat -f%z "output/$INSTALLER_FILENAME")
+          MIN_EXPECTED_SIZE_BYTES=10000000
+          if [ "$FILE_SIZE_BYTES" -lt "$MIN_EXPECTED_SIZE_BYTES" ]; then
+            echo "Error: Downloaded PKG file is too small ($FILE_SIZE_BYTES bytes). Download likely failed."
             exit 1
           fi
 
-          LTS_VERSION_CLEAN=${LTS_VERSION_FULL//v/}
-          INSTALLER_FILENAME="node-${LTS_VERSION_FULL}-darwin-x64.pkg"
-          DOWNLOAD_URL="https://nodejs.org/dist/${LTS_VERSION_FULL}/${INSTALLER_FILENAME}"
-          
+          echo "Downloaded PKG size: $FILE_SIZE_BYTES bytes (looks good)."
+
+          # Export variables for later steps
           echo "NODEJS_VERSION=$LTS_VERSION_FULL" >> $GITHUB_ENV
           echo "NODEJS_DOWNLOAD_URL=$DOWNLOAD_URL" >> $GITHUB_ENV
           echo "NODEJS_INSTALLER_FILENAME=$INSTALLER_FILENAME" >> $GITHUB_ENV
-
-          echo "Found Node.js LTS version: $LTS_VERSION_FULL"
-          echo "Download URL: $DOWNLOAD_URL"
-          echo "Installer filename: $INSTALLER_FILENAME"
-
-      - name: Download Node.js PKG
-        run: |
-          set -eux
-          curl -L "$NODEJS_DOWNLOAD_URL" -o "output/$NODEJS_INSTALLER_FILENAME"
-          echo "Downloaded Node.js PKG: output/$NODEJS_INSTALLER_FILENAME"
-
-          # Size check (10 MB minimum)
-          FILE_SIZE_BYTES=$(stat -f%z "output/$NODEJS_INSTALLER_FILENAME")
-          MIN_EXPECTED_SIZE_BYTES=10000000
-
-          if [ "$FILE_SIZE_BYTES" -lt "$MIN_EXPECTED_SIZE_BYTES" ]; then
-            echo "Error: Downloaded PKG too small ($FILE_SIZE_BYTES bytes)"
-            exit 1
-          else
-            echo "Downloaded PKG size: $FILE_SIZE_BYTES bytes"
-          fi
-
-      - name: Extract Node.js PKG bundle identifier and version
-        run: |
-          set -eux
-          PKG_PATH="output/$NODEJS_INSTALLER_FILENAME"
-          WORKDIR="output/pkg_extract"
-
-          mkdir -p "$WORKDIR"
-          
-          # Expand the pkg to a temp folder
-          pkgutil --expand-full "$PKG_PATH" "$WORKDIR/expanded"
-
-          # Find the Distribution file or Info.plist inside the payload
-          # Node.js installer contains a Payload archive inside the expanded folder
-          PAYLOAD_PATH=$(find "$WORKDIR/expanded" -name "Payload" | head -n 1)
-          
-          if [ -z "$PAYLOAD_PATH" ]; then
-            echo "Error: Could not find Payload inside PKG"
-            exit 1
-          fi
-          
-          # Extract Payload contents (cpio archive)
-          mkdir -p "$WORKDIR/payload_extract"
-          cd "$WORKDIR/payload_extract"
-          cat "$PAYLOAD_PATH" | gunzip -dc | cpio -id
-
-          # Read Info.plist for bundle id and version from Node.js app (inside /usr/local/bin or relevant path)
-          # Node.js pkg doesn't include a typical app bundle but has version info in Distribution file
-
-          DISTRIBUTION_FILE="$WORKDIR/expanded/Distribution"
-          if [ -f "$DISTRIBUTION_FILE" ]; then
-            # Extract version info from Distribution file XML content
-            VERSION=$(grep -oPm1 "(?<=<pkg-info version=\")[^\"]+" "$DISTRIBUTION_FILE")
-            echo "NODEJS_PKG_VERSION=$VERSION"
-            echo "NODEJS_PKG_VERSION=$VERSION" >> $GITHUB_ENV
-          else
-            echo "Warning: Distribution file not found; cannot extract version."
-            echo "NODEJS_PKG_VERSION=unknown" >> $GITHUB_ENV
-          fi
-
-          # No formal bundle identifier for Node.js pkg, just use a fixed string
-          echo "NODEJS_BUNDLE_ID=org.nodejs.pkg" >> $GITHUB_ENV
 
       - name: Upload Node.js PKG as artifact
         uses: actions/upload-artifact@v4
