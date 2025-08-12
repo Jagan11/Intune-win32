@@ -37,7 +37,7 @@ jobs:
           
           echo "Installing AutoPkg..."
           sudo installer -pkg autopkg.pkg -target /
-          autopkg --version
+          autopkg version
 
       - name: Add AutoPkg recipe repos
         run: |
