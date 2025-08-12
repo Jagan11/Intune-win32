@@ -6,47 +6,30 @@ on:
 jobs:
   package-edge:
     runs-on: macos-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Create output directory
-        run: mkdir -p output
-
-      - name: Download Microsoft Edge PKG
+      - name: Set up directories
         run: |
-          echo "Downloading Microsoft Edge PKG..."
-          curl -L -o output/MicrosoftEdge.pkg "https://go.microsoft.com/fwlink/?linkid=2093504"
+          rm -rf edge_pkg wrapped
+          mkdir -p edge_pkg wrapped
 
-      - name: Get Microsoft Edge bundle ID
+      - name: Download Microsoft Edge for macOS (.pkg)
         run: |
-          echo "Extracting bundle ID..."
-          pkgutil --expand output/MicrosoftEdge.pkg output/pkg_content
-          app_path=$(find output/pkg_content -name "Microsoft Edge.app" -type d | head -n 1)
-          if [ -z "$app_path" ]; then
-            echo "Microsoft Edge.app not found in PKG."
-            exit 1
-          fi
-          bundle_id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$app_path/Contents/Info.plist")
-          echo "Bundle ID: $bundle_id"
-          echo "BUNDLE_ID=$bundle_id" >> $GITHUB_ENV
+          curl -L "https://go.microsoft.com/fwlink/?linkid=2069148" -o edge_pkg/MicrosoftEdge.pkg
 
-      - name: Download Intune App Wrapping Tool
+      - name: Download Microsoft Intune App Wrapping Tool for Mac
         run: |
-          echo "Downloading Intune App Wrapping Tool..."
-          curl -L -o output/wrapper.zip "https://github.com/msintuneappsdk/intune-app-wrapping-tool-mac/releases/latest/download/IntuneAppWrappingTool.zip"
-          echo "Extracting Intune App Wrapping Tool..."
-          unzip -o output/wrapper.zip -d output/wrapper
-          chmod +x output/wrapper/IntuneAppUtil
+          curl -L "https://aka.ms/intune-app-wrapping-tool-mac" -o wrapped/IntuneAppUtil.zip
+          unzip -q wrapped/IntuneAppUtil.zip -d wrapped
+          chmod +x wrapped/IntuneAppUtil
 
-      - name: Wrap Microsoft Edge PKG
+      - name: Wrap Microsoft Edge PKG into IntuneMac
         run: |
-          echo "Wrapping Microsoft Edge PKG into .intunemac format..."
-          ./output/wrapper/IntuneAppUtil -c output/MicrosoftEdge.pkg -o output -i "$BUNDLE_ID"
+          wrapped/IntuneAppUtil -c edge_pkg/MicrosoftEdge.pkg \
+            -o wrapped/MicrosoftEdge.intunemac \
+            -b com.microsoft.edgemac
 
-      - name: Upload wrapped app
+      - name: Upload packaged Edge IntuneMac file
         uses: actions/upload-artifact@v4
         with:
-          name: MicrosoftEdge-intunemac
-          path: output/*.intunemac
+          name: MicrosoftEdge-IntuneMac
+          path: wrapped/MicrosoftEdge.intunemac
