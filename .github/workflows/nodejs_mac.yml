@@ -1,4 +1,4 @@
-name: Get Node.js PKG for Intune
+name: Get Node.js PKG for Intune with Bundle Info
 
 on:
   workflow_dispatch:
@@ -10,38 +10,23 @@ jobs:
       - name: Create directories
         run: |
           mkdir -p input output
-      
+
       - name: Get latest Node.js LTS version and download URL
         run: |
-          set -eux # Enable strict error checking and command tracing
-
-          # Fetch Node.js version information from nodejs.org API
+          set -eux
           NODE_INDEX=$(curl -s "https://nodejs.org/dist/index.json")
-          
-          echo "--- DEBUG: Raw Node.js index.json (first 20 lines) ---"
-          echo "$NODE_INDEX" | head -n 20 # Print first 20 lines for debugging
-          echo "--- END DEBUG ---"
+          echo "$NODE_INDEX" | head -n 20
 
-          # Find the latest LTS version (where .lts is truthy, either true or a string codename)
-          # We sort versions numerically (-V) and take the last one to ensure we get the latest LTS.
           LTS_VERSION_FULL=$(echo "$NODE_INDEX" | jq -r '.[] | select(.lts) | .version' | sort -V | tail -n 1)
-          
           if [ -z "$LTS_VERSION_FULL" ]; then
-            echo "Error: Could not determine latest LTS Node.js version from index.json."
-            # If the above fails, it means the `index.json` might not contain expected LTS data
-            # You could try a fallback for the latest general version if LTS is not found:
-            # LTS_VERSION_FULL=$(echo "$NODE_INDEX" | jq -r '.[0].version')
+            echo "Error: Could not determine latest LTS Node.js version."
             exit 1
           fi
-
-          # Remove the 'v' prefix from the version for URL construction (if present, harmless otherwise)
           LTS_VERSION_CLEAN=${LTS_VERSION_FULL//v/}
-          
-          # Construct download URL for the macOS PKG installer (x64 for broader compatibility)
-          # This assumes the standard naming convention for macOS PKG installers from Node.js
+
           INSTALLER_FILENAME="node-${LTS_VERSION_FULL}-darwin-x64.pkg"
           DOWNLOAD_URL="https://nodejs.org/dist/${LTS_VERSION_FULL}/${INSTALLER_FILENAME}"
-          
+
           echo "NODEJS_VERSION=$LTS_VERSION_FULL" >> $GITHUB_ENV
           echo "NODEJS_DOWNLOAD_URL=$DOWNLOAD_URL" >> $GITHUB_ENV
           echo "NODEJS_INSTALLER_FILENAME=$INSTALLER_FILENAME" >> $GITHUB_ENV
@@ -52,21 +37,64 @@ jobs:
 
       - name: Download Node.js PKG
         run: |
-          set -eux # Enable strict error checking and command tracing
+          set -eux
           curl -L "$NODEJS_DOWNLOAD_URL" -o "output/$NODEJS_INSTALLER_FILENAME"
-          echo "Downloaded Node.js PKG: output/$NODEJS_INSTALLER_FILENAME"
+          echo "Downloaded Node.js PKG to output/$NODEJS_INSTALLER_FILENAME"
 
-          # Add a size check to ensure the downloaded file is not too small (e.g., less than 10 MB)
-          # Use find with -printf %s for cross-platform size check in bytes
-          FILE_SIZE_BYTES=$(find "output/$NODEJS_INSTALLER_FILENAME" -printf "%s" | head -n 1)
-          MIN_EXPECTED_SIZE_BYTES=10000000 # 10 MB in bytes (adjust if needed)
-
+          FILE_SIZE_BYTES=$(stat -f%z "output/$NODEJS_INSTALLER_FILENAME")
+          MIN_EXPECTED_SIZE_BYTES=10000000
           if [ "$FILE_SIZE_BYTES" -lt "$MIN_EXPECTED_SIZE_BYTES" ]; then
-            echo "Error: Downloaded PKG file is too small ($FILE_SIZE_BYTES bytes). Expected at least $MIN_EXPECTED_SIZE_BYTES bytes. Download likely failed."
+            echo "Error: Downloaded PKG file too small ($FILE_SIZE_BYTES bytes)."
             exit 1
           else
-            echo "Downloaded PKG size: $FILE_SIZE_BYTES bytes (looks good)."
+            echo "Downloaded PKG size: $FILE_SIZE_BYTES bytes"
           fi
+
+      - name: Extract Node.js bundle ID and version from PKG metadata
+        run: |
+          set -eux
+          PKG_PATH="output/$NODEJS_INSTALLER_FILENAME"
+
+          # Extract Distribution XML content (if exists) from pkg
+          pkgutil --expand-full "$PKG_PATH" pkg-expanded
+
+          # Distribution file is at pkg-expanded/Distribution or in pkg-expanded/*.pkg/Distribution
+          # Check for top-level Distribution file
+          if [ -f pkg-expanded/Distribution ]; then
+            DIST_FILE="pkg-expanded/Distribution"
+          else
+            # Find first Distribution inside nested packages
+            DIST_FILE=$(find pkg-expanded -name Distribution | head -n1)
+          fi
+
+          if [ -z "$DIST_FILE" ]; then
+            echo "Distribution file not found, cannot extract bundle info."
+            echo "NODE_BUNDLE_ID=unknown" >> $GITHUB_ENV
+            echo "NODE_PKG_VERSION=unknown" >> $GITHUB_ENV
+            exit 0
+          fi
+
+          echo "Found Distribution file at: $DIST_FILE"
+
+          # Extract version from Distribution XML (look for version attribute or pkg-ref)
+          NODE_PKG_VERSION=$(xmllint --xpath "string(/installer-script/@version)" "$DIST_FILE" || echo "")
+          if [ -z "$NODE_PKG_VERSION" ]; then
+            # fallback: try pkg-ref version attribute
+            NODE_PKG_VERSION=$(xmllint --xpath "string(/installer-script/pkg-ref/@version)" "$DIST_FILE" || echo "unknown")
+          fi
+          NODE_PKG_VERSION=${NODE_PKG_VERSION:-unknown}
+
+          # Hardcode or try to detect bundle ID (Node.js CLI usually org.nodejs.node)
+          NODE_BUNDLE_ID="org.nodejs.node"
+
+          echo "NODE_BUNDLE_ID=$NODE_BUNDLE_ID" >> $GITHUB_ENV
+          echo "NODE_PKG_VERSION=$NODE_PKG_VERSION" >> $GITHUB_ENV
+
+          echo "Node.js bundle ID: $NODE_BUNDLE_ID"
+          echo "Node.js PKG version: $NODE_PKG_VERSION"
+
+          # Cleanup
+          rm -rf pkg-expanded
 
       - name: Upload Node.js PKG as artifact
         uses: actions/upload-artifact@v4
