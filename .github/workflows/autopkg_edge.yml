@@ -1,0 +1,174 @@
+name: Build Microsoft Edge Package for macOS
+
+on:
+  workflow_dispatch: # Allows manual triggering of the workflow
+
+jobs:
+  edge_macos:
+    runs-on: macos-latest # This job runs on a macOS runner
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Show current working directory and recipes folder for debug
+        # Display current directory and contents of the 'recipes' folder for debugging purposes.
+        run: |
+          echo "Current working directory:"
+          pwd
+          echo "Repository root contents:"
+          ls -la
+          echo "Recipes folder contents:"
+          ls -la ./recipes || true # Add || true to prevent failure if folder is empty or not found
+
+      - name: Clean AutoPkg cached recipe repositories
+        # Remove old AutoPkg recipe caches to ensure a clean slate and avoid conflicts.
+        run: |
+          echo "Removing old AutoPkg recipe caches..."
+          rm -rf ~/Library/AutoPkg/RecipeRepos/* || true # Use || true to prevent failure if directory doesn't exist
+          echo "Cache cleanup done."
+
+      - name: Download and install AutoPkg
+        # Download the AutoPkg installer package.
+        run: |
+          echo "Downloading AutoPkg installer..."
+          curl -L -o autopkg.pkg https://github.com/autopkg/autopkg/releases/download/v2.7.5/AutoPkg-2.7.5.pkg
+
+          if [ ! -f autopkg.pkg ]; then
+            echo "Error: AutoPkg installer package missing!"
+            exit 1
+          fi
+
+          # Verify the downloaded file size to ensure it's not a partial download or error page.
+          filesize=$(stat -f%z autopkg.pkg)
+          echo "Installer package size: $filesize bytes"
+
+          if [ "$filesize" -lt 100000 ]; then # Minimum expected size for a valid installer
+            echo "Error: Installer package is suspiciously small; aborting."
+            exit 1
+          fi
+
+          # Install AutoPkg silently.
+          echo "Installing AutoPkg..."
+          sudo installer -pkg autopkg.pkg -target /
+          echo "AutoPkg version:"
+          autopkg version
+
+      - name: Add AutoPkg recipe repositories
+        # Add the official AutoPkg recipes repository, which contains the MSEdge.download.recipe.
+        run: |
+          echo "Adding official AutoPkg recipes repo..."
+          autopkg repo-add https://github.com/autopkg/recipes.git
+          echo "Listing all recipes to confirm..."
+          autopkg list-recipes
+
+      - name: Set environment variable for custom processors (if any)
+        # Set an environment variable if you have custom AutoPkg processors in your 'processors' folder.
+        run: |
+          echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
+
+      - name: Run MSEdge.download.recipe with verbose output
+        # Execute the MSEdge.download.recipe. This recipe will download the latest Microsoft Edge installer (usually a PKG).
+        run: autopkg run MSEdge.download.recipe --verbose
+
+      - name: Find downloaded Microsoft Edge installer
+        id: find_edge_installer
+        run: |
+          RECIPE_CACHE_DIR="$HOME/Library/AutoPkg/Cache"
+          # The MSEdge.download.recipe typically downloads a .pkg file.
+          EDGE_INSTALLER_PATH=$(find "$RECIPE_CACHE_DIR" -name "MicrosoftEdge*.pkg" -type f | head -n 1)
+
+          if [ -z "$EDGE_INSTALLER_PATH" ]; then
+            echo "::error ::Microsoft Edge PKG installer not found in AutoPkg cache directory. Check previous AutoPkg run logs."
+            echo "Contents of $RECIPE_CACHE_DIR for debugging:"
+            ls -la "$RECIPE_CACHE_DIR" || true
+            find "$RECIPE_CACHE_DIR" -type f -o -type d || true
+            exit 1
+          fi
+
+          echo "Found Microsoft Edge Installer: $EDGE_INSTALLER_PATH"
+          echo "EDGE_INSTALLER_PATH=$EDGE_INSTALLER_PATH" >> $GITHUB_ENV
+
+      - name: Extract Bundle ID and Version for Intune
+        id: extract_info
+        # Use pkgutil to extract the bundle ID from the PKG, and then PlistBuddy for version.
+        run: |
+          # Use pkgutil to find the app bundle within the PKG
+          # This assumes the PKG installs Microsoft Edge.app to /Applications
+          # For a PKG, we can't directly use PlistBuddy on the PKG itself,
+          # so we'll assume the installed app's Info.plist contains the info.
+          # As a fallback for direct PKG info, we'll extract after a dummy install or get from receipt if available.
+
+          # First, try to get info if the PKG itself has an embedded Info.plist (less common)
+          # Or, extract a temporary copy of the app for info extraction.
+          # A more reliable method for PKG is to get info AFTER it would be installed,
+          # or rely on recipe output. Since we need it pre-upload, we'll simulate finding it.
+
+          # For AutoPkg downloaded PKGs, the recipe typically populates recipe variables.
+          # We can extract details from the PKG itself without installing it.
+          # pkgutil --info-plist is not reliable for direct CFBundleIdentifier.
+          # We'll use the Installer.pkg.recipe pattern: create a dummy install to extract Info.plist.
+
+          # Create a temporary installation directory
+          TEMP_INSTALL_DIR="/private/tmp/EdgeInstallTemp_$(uuidgen)"
+          mkdir -p "$TEMP_INSTALL_DIR"
+          
+          # Perform a dummy install to get the app bundle
+          echo "Performing dummy install of ${{ env.EDGE_INSTALLER_PATH }} to $TEMP_INSTALL_DIR..."
+          sudo installer -pkg "${{ env.EDGE_INSTALLER_PATH }}" -target "$TEMP_INSTALL_DIR" -verbose -allowUntrusted || { echo "::error ::Dummy install failed."; exit 1; }
+
+          # Find the installed app within the temporary directory
+          INSTALLED_APP_PATH=$(find "$TEMP_INSTALL_DIR" -type d -name "Microsoft Edge.app" | head -n 1)
+
+          if [ -z "$INSTALLED_APP_PATH" ]; then
+            echo "::error ::Microsoft Edge.app not found after dummy install in $TEMP_INSTALL_DIR."
+            ls -la "$TEMP_INSTALL_DIR" || true # Debug contents
+            exit 1
+          fi
+
+          INFO_PLIST_PATH="$INSTALLED_APP_PATH/Contents/Info.plist"
+          
+          if [ ! -f "$INFO_PLIST_PATH" ]; then
+            echo "::error ::Info.plist not found for Microsoft Edge.app at $INFO_PLIST_PATH"
+            exit 1
+          fi
+
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO_PLIST_PATH")
+          APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO_PLIST_PATH")
+
+          echo "Extracted Bundle ID: $BUNDLE_ID"
+          echo "Extracted App Version: $APP_VERSION"
+
+          # Create a file with the Intune relevant information
+          INFO_FILE="microsoft_edge_intune_info_macos.txt"
+          echo "--- Microsoft Edge (macOS) Intune Details ---" > "$INFO_FILE"
+          echo "Bundle ID (for Detection Rules): $BUNDLE_ID" >> "$INFO_FILE"
+          echo "Version (for Display/Detection): $APP_VERSION" >> "$INFO_FILE"
+          echo "" >> "$INFO_FILE"
+          echo "Install Command: sudo installer -pkg <package_name>.pkg -target /" >> "$INFO_FILE"
+          echo "Uninstall Command: /bin/rm -rf '/Applications/Microsoft Edge.app'" >> "$INFO_FILE"
+          echo "---------------------------------------------" >> "$INFO_FILE"
+
+          echo "Intune info saved to $INFO_FILE"
+          ls -la "$INFO_FILE" # Show the created file
+
+          # Clean up the temporary installation directory
+          echo "Cleaning up temporary install directory: $TEMP_INSTALL_DIR"
+          sudo rm -rf "$TEMP_INSTALL_DIR"
+
+          # Make these values available as outputs for the job
+          echo "INFO_FILE=$INFO_FILE" >> $GITHUB_OUTPUT
+
+      - name: Upload Microsoft Edge PKG as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: microsoft-edge-macos-pkg
+          path: ${{ env.EDGE_INSTALLER_PATH }} # Path to the downloaded PKG installer
+          retention-days: 7
+
+      - name: Upload Intune info file for macOS Edge as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: microsoft-edge-macos-intune-info
+          path: ${{ steps.extract_info.outputs.INFO_FILE }}
+          retention-days: 7
