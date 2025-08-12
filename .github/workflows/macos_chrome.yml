@@ -14,25 +14,19 @@ jobs:
       - name: Download latest Google Chrome macOS DMG
         run: |
           echo "Downloading latest Google Chrome DMG..."
-          # Google Chrome provides a direct download link that redirects to the latest stable DMG.
-          # We use -L to follow redirects.
           curl -L "https://dl.google.com/chrome/mac/universal/stable/GGRO/googlechrome.dmg" -o "output/GoogleChrome-latest.dmg"
           echo "Downloaded Google Chrome DMG to output/GoogleChrome-latest.dmg"
 
-      - name: Get Chrome version from DMG
+      - name: Get Chrome bundle ID and version from DMG
         run: |
           set -eux
           DMG_PATH="output/GoogleChrome-latest.dmg"
           
-          echo "Attaching DMG for version check..."
-          # Attach the DMG quietly to get its mount point
-          # Removed '-noquiet' as it's not a valid option. '-noquiet' is implicitly handled by -nobrowse for most purposes.
+          echo "Attaching DMG for info check..."
           MOUNT_OUTPUT=$(hdiutil attach "$DMG_PATH" -nobrowse -noverify)
           echo "hdiutil attach output:"
           echo "$MOUNT_OUTPUT"
 
-          # Extract the mount point, robustly handling spaces in the volume name
-          # Chrome typically mounts as "Google Chrome"
           MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | head -n 1 | sed -E 's/.*(\/Volumes\/.*)/\1/')
           echo "Mounted DMG at: $MOUNTPOINT"
 
@@ -41,10 +35,13 @@ jobs:
             exit 1
           fi
 
-          # Read the CFBundleShortVersionString from the Google Chrome.app's Info.plist
-          # The application bundle is typically directly in the mounted volume
+          BUNDLE_ID=$(defaults read "$MOUNTPOINT/Google Chrome.app/Contents/Info.plist" CFBundleIdentifier || echo "unknown")
           VERSION=$(defaults read "$MOUNTPOINT/Google Chrome.app/Contents/Info.plist" CFBundleShortVersionString || echo "unknown")
+
+          echo "CHROME_BUNDLE_ID=$BUNDLE_ID" >> $GITHUB_ENV
           echo "CHROME_VERSION=$VERSION" >> $GITHUB_ENV
+
+          echo "Google Chrome Bundle ID: $BUNDLE_ID"
           echo "Google Chrome version: $VERSION"
 
           echo "Detaching DMG..."
