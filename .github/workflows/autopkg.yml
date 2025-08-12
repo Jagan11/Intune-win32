@@ -60,23 +60,30 @@ jobs:
       - name: Run VisualStudioCode.download.recipe only
         run: autopkg run VisualStudioCode.download.recipe --verbose
 
-      - name: Find downloaded package artifact
+      - name: Debug - List all files in AutoPkg CacheDir (for troubleshooting)
+        run: |
+          RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
+          echo "AutoPkg Cache Directory: $RECIPE_CACHE_DIR"
+          echo "Listing all files in cache directory:"
+          find "$RECIPE_CACHE_DIR" -type f
+
+      - name: Find downloaded package artifact (including .zip)
         id: find-artifact
         run: |
           RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
           echo "AutoPkg Cache Directory: $RECIPE_CACHE_DIR"
 
-          ARTIFACT=$(find "$RECIPE_CACHE_DIR" -type f \( -name "*.intunemac" -o -name "*.pkg" -o -name "*.dmg" \) | head -n 1)
+          ARTIFACT=$(find "$RECIPE_CACHE_DIR" -type f \( -name "*.intunemac" -o -name "*.pkg" -o -name "*.dmg" -o -name "*.zip" \) | head -n 1)
 
           if [ -z "$ARTIFACT" ]; then
-            echo "::error ::No package artifact found in cache directory."
+            echo "::error ::No package artifact (.intunemac, .pkg, .dmg, .zip) found in cache directory."
             exit 1
           fi
 
           echo "Package artifact found: $ARTIFACT"
           echo "ARTIFACT=$ARTIFACT" >> $GITHUB_ENV
 
-      - name: Upload artifact
+      - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
           name: vscode-package
