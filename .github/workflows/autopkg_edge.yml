@@ -67,28 +67,27 @@ jobs:
         run: |
           echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
 
-      - name: Run MSEdge.download.recipe with verbose output
-        # Execute the MSEdge.download.recipe. This recipe will download the latest Microsoft Edge installer (usually a PKG).
-        run: autopkg run MSEdge.download.recipe --verbose
-
-      - name: Find downloaded Microsoft Edge installer
-        id: find_edge_installer
+      - name: Run MSEdge.download.recipe and Extract Path
+        id: run_and_extract_path # ID to reference outputs if needed
         run: |
-          RECIPE_CACHE_DIR="$HOME/Library/AutoPkg/Cache"
-          # The MSEdge.download.recipe typically downloads a .pkg file into a subfolder.
-          # We perform a recursive find to ensure it's located wherever it lands.
-          EDGE_INSTALLER_PATH=$(find "$RECIPE_CACHE_DIR" -name "MicrosoftEdge*.pkg" -type f | head -n 1)
+          # Execute the MSEdge.download.recipe and capture its entire verbose output
+          AUTOPKG_OUTPUT=$(autopkg run MSEdge.download.recipe --verbose 2>&1)
+          echo "$AUTOPKG_OUTPUT" # Print full output for debugging
+
+          # Extract the download path from the output.
+          # We look for a line starting with '/' (absolute path) and ending with '.pkg'
+          # This pattern specifically targets the "Download Path" line from AutoPkg's output.
+          EDGE_INSTALLER_PATH=$(echo "$AUTOPKG_OUTPUT" | grep -oP '/Users/runner/Library/AutoPkg/Cache/[^ ]+\.pkg$' | tail -n 1)
 
           if [ -z "$EDGE_INSTALLER_PATH" ]; then
-            echo "::error ::Microsoft Edge PKG installer not found in AutoPkg cache directory. Check previous AutoPkg run logs."
-            echo "Contents of $RECIPE_CACHE_DIR for debugging:"
-            ls -la "$RECIPE_CACHE_DIR" || true
-            find "$RECIPE_CACHE_DIR" -type f -o -type d || true
+            echo "::error ::Could not extract Microsoft Edge PKG installer path from AutoPkg output."
+            echo "Full AutoPkg output for debugging:"
+            echo "$AUTOPKG_OUTPUT" # Re-print full output if extraction fails
             exit 1
           fi
 
-          echo "Found Microsoft Edge Installer: $EDGE_INSTALLER_PATH"
-          echo "EDGE_INSTALLER_PATH=$EDGE_INSTALLER_PATH" >> $GITHUB_ENV
+          echo "Found Microsoft Edge Installer at: $EDGE_INSTALLER_PATH"
+          echo "EDGE_INSTALLER_PATH=$EDGE_INSTALLER_PATH" >> $GITHUB_ENV # Set as env var for subsequent steps
 
       - name: Extract Bundle ID and Version for Intune
         id: extract_info
