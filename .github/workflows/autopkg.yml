@@ -54,9 +54,9 @@ jobs:
           echo "Adding official AutoPkg recipes repo..."
           autopkg repo-add https://github.com/autopkg/recipes.git
 
-          echo "Adding local vendored recipes folder..."
-          # Corrected: Use 'file://' prefix for local recipe repositories
-          autopkg repo-add "file://$(pwd)/recipes"
+          # Removed: 'autopkg repo-add "file://$(pwd)/recipes"'
+          # AutoPkg typically finds recipes in the current working directory and its subdirectories.
+          # Adding it as a 'repo' explicitly might cause issues if it's not a Git repo itself.
 
           echo "Listing all recipes to confirm..."
           autopkg list-recipes
@@ -72,10 +72,12 @@ jobs:
 
       - name: Debug - List all files in AutoPkg Cache Directory
         run: |
-          RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
+          # Make the autopkg pref-read more resilient to prevent early exit if it errors
+          RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir 2>&1 || echo "")
           
           if [ -z "$RECIPE_CACHE_DIR" ]; then
-            echo "Error: AutoPkg CacheDir is empty or could not be read. AutoPkg might not be fully configured or initialized."
+            echo "Error: AutoPkg CacheDir is empty or could not be read. AutoPkg might not be fully configured or initialized. Full output of 'autopkg pref-read CacheDir':"
+            autopkg pref-read CacheDir 2>&1 # Print verbose output for direct debugging
             exit 1
           fi
 
@@ -94,10 +96,12 @@ jobs:
       - name: Find downloaded artifact (.app, .intunemac, .pkg, .dmg, or .zip)
         id: find-artifact
         run: |
-          RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
+          # Make the autopkg pref-read more resilient here as well
+          RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir 2>&1 || echo "")
           
           if [ -z "$RECIPE_CACHE_DIR" ]; then
-            echo "Error: AutoPkg CacheDir is empty for artifact search. AutoPkg might not be fully configured or initialized."
+            echo "Error: AutoPkg CacheDir is empty for artifact search. AutoPkg might not be fully configured or initialized. Full output of 'autopkg pref-read CacheDir':"
+            autopkg pref-read CacheDir 2>&1 # Print verbose output for direct debugging
             exit 1
           fi
 
@@ -134,3 +138,11 @@ jobs:
           name: vscode-package
           path: ${{ env.ARTIFACT }}
           retention-days: 7
+```
+
+---
+
+### Key Changes Made
+
+* **Removed Local Repo Addition**: The line `autopkg repo-add "file://$(pwd)/recipes"` has been commented out (removed). Your `VisualStudioCode.download.recipe` is located directly within the `recipes` subdirectory of your repository. AutoPkg automatically searches the current working directory and its subdirectories for recipes, so this explicit `repo-add` for a local, non-Git repository was unnecessary and likely causing the "repository not found" error during that step.
+* **Resilient `autopkg pref-read CacheDir`**: In both the "Debug - List all files in AutoPkg Cache Directory" and "Find downloaded artifact" steps, the command `RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)` is now `RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir 2>&1 || echo "")`. This change ensures that even if `autopkg pref-read CacheDir` produces an error (e.g., due to uninitialized preferences), the error output is captured and `RECIPE_CACHE_DIR` is set to an empty string instead of failing the command substitution immediately. This allows the subsequent `if [ -z "$RECIPE_CACHE_DIR" ]` check to cleanly catch the issue and provide better debug outp
