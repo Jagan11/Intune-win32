@@ -1,45 +1,44 @@
-name: Package Slack for macOS
+name: Download Slack DMG and Extract Bundle ID
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
+  slack-dmg:
     runs-on: macos-latest
 
     steps:
-      - name: Create output directories
-        run: |
-          mkdir -p output wrapped slack_mount
+    - name: Create output directory
+      run: mkdir -p output
 
-      - name: Download Slack DMG
-        run: |
-          SLACK_URL="https://downloads.slack-edge.com/releases/macos/Slack-latest.dmg"
-          echo "Downloading Slack from $SLACK_URL"
-          curl -L "$SLACK_URL" -o output/Slack.dmg
+    - name: Download Slack DMG
+      run: |
+        SLACK_URL="https://downloads.slack-edge.com/releases/macos/4.34.152/prod/x64/Slack-4.34.152-macOS.dmg"
+        echo "Downloading Slack from $SLACK_URL"
+        curl -L "$SLACK_URL" -o output/Slack.dmg
 
-      - name: Mount Slack DMG and copy Slack.app
-        run: |
-          echo "Mounting Slack DMG..."
-          MOUNT_POINT=$(hdiutil attach output/Slack.dmg -nobrowse -quiet | grep Volumes | awk '{print $3}')
-          echo "Copying Slack.app to output directory..."
-          cp -R "$MOUNT_POINT/Slack.app" output/
-          hdiutil detach "$MOUNT_POINT" -quiet
+    - name: Mount Slack DMG
+      id: mount
+      run: |
+        echo "Mounting Slack DMG..."
+        MOUNT_DIR=$(hdiutil attach output/Slack.dmg -nobrowse -quiet | grep '/Volumes/' | awk '{print $3}')
+        echo "MOUNT_DIR=$MOUNT_DIR" >> $GITHUB_OUTPUT
 
-      - name: Download and extract IntuneAppUtil
-        run: |
-          echo "Downloading IntuneAppUtil DMG..."
-          curl -L "https://aka.ms/intune-app-wrapping-tool-mac" -o wrapped/IntuneAppUtil.dmg
-          echo "Mounting IntuneAppUtil DMG..."
-          MOUNT_POINT=$(hdiutil attach wrapped/IntuneAppUtil.dmg -nobrowse -quiet | grep Volumes | awk '{print $3}')
-          echo "Copying IntuneAppUtil binary..."
-          cp "$MOUNT_POINT/IntuneAppUtil" wrapped/IntuneAppUtil
-          chmod +x wrapped/IntuneAppUtil
-          hdiutil detach "$MOUNT_POINT" -quiet
+    - name: Copy Slack.app to output directory
+      run: |
+        cp -R "${{ steps.mount.outputs.MOUNT_DIR }}/Slack.app" output/
 
-      - name: Wrap Slack.app as .intunemac
-        run: |
-          ./wrapped/IntuneAppUtil -c output/Slack.app -o output -i "com.tinyspeck.slackmacgap"
+    - name: Unmount Slack DMG
+      run: |
+        echo "Unmounting Slack DMG..."
+        hdiutil detach "${{ steps.mount.outputs.MOUNT_DIR }}" -quiet
 
-      - name: List output files
-        run: ls -lh output
+    - name: Extract Bundle Identifier from Slack.app
+      run: |
+        /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" output/Slack.app/Contents/Info.plist
+
+    - name: Upload Slack.app and output files
+      uses: actions/upload-artifact@v4
+      with:
+        name: slack-macos-app
+        path: output/Slack.app
