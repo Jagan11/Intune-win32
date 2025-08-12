@@ -19,16 +19,18 @@ jobs:
           if [ ! -s output/Slack.dmg ]; then
             echo "Slack DMG download failed or empty!"
             exit 1
+          (
           fi
 
       - name: Mount Slack DMG
         id: mount
         run: |
           echo "Mounting Slack DMG..."
-          # Attach the DMG and capture its full output.
+          # Attach the DMG and capture its full output (stdout and stderr).
           # Removing -quiet to ensure all output is captured for debugging.
-          # Pipe stderr to stdout (2>&1) to capture potential errors.
-          DMG_ATTACH_OUTPUT=$(hdiutil attach output/Slack.dmg -nobrowse 2>&1)
+          # Adding '|| true' to prevent script exit if hdiutil attach returns non-zero status,
+          # allowing the full output to be printed for debugging.
+          DMG_ATTACH_OUTPUT=$(hdiutil attach output/Slack.dmg -nobrowse 2>&1 || true)
           
           # Attempt to extract the mount directory from the captured output.
           # Look for a line containing '/Volumes/' and extract the last field, which is typically the mount path.
