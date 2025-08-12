@@ -1,279 +1,45 @@
-name: Package Slack macOS .intunemac
+name: Package Slack for macOS
 
 on:
   workflow_dispatch:
 
 jobs:
-  package-slack:
+  build:
     runs-on: macos-latest
+
     steps:
-      - name: Create base directories
+      - name: Create output directories
         run: |
-          mkdir -p output
-          mkdir -p tools
-          mkdir -p temp_app_dir # Directory to hold the extracted .app
+          mkdir -p output wrapped slack_mount
 
-      - name: Checkout repository (not strictly needed for IntuneAppUtil anymore, but good practice)
-        uses: actions/checkout@v3
-
-      - name: Download Microsoft Shell Intune App Utility
+      - name: Download Slack DMG
         run: |
-          set -eux
-          echo "Downloading Microsoft Shell Intune App Utility (IntuneAppUtil) directly..."
-          mkdir -p tools # Ensure the 'tools' directory exists right before attempting to download into it
-          
-          # Corrected URL: changed 'master' to 'main' branch
-          # Using relative path for output
-          curl -L "https://raw.githubusercontent.com/microsoft/shell-intune-samples/main/macOS/Tools/IntuneAppUtil" -o "tools/IntuneAppUtil"
-          
-          # Make the downloaded file executable using its relative path
-          chmod +x "tools/IntuneAppUtil"
-          
-          echo "IntuneAppUtil prepared."
+          SLACK_URL="https://downloads.slack-edge.com/releases/macos/Slack-latest.dmg"
+          echo "Downloading Slack from $SLACK_URL"
+          curl -L "$SLACK_URL" -o output/Slack.dmg
 
-      - name: Download latest Slack macOS DMG
+      - name: Mount Slack DMG and copy Slack.app
         run: |
-          set -eux
-          set -o pipefail # Ensure any error in a pipeline causes the script to exit immediately
-          
-          echo "Fetching Slack macOS download page to find the direct DMG link..."
-          # Fetch the HTML content of the Slack macOS download page
-          DOWNLOAD_PAGE_URL="https://slack.com/downloads/macos"
-          HTML_CONTENT=$(curl -sL "$DOWNLOAD_PAGE_URL" -H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36")
-          
-          echo "--- START: HTML Content from Slack Download Page ---"
-          echo "$HTML_CONTENT" # Diagnostic: Print the raw HTML content
-          echo "--- END: HTML Content from Slack Download Page ---"
+          echo "Mounting Slack DMG..."
+          MOUNT_POINT=$(hdiutil attach output/Slack.dmg -nobrowse -quiet | grep Volumes | awk '{print $3}')
+          echo "Copying Slack.app to output directory..."
+          cp -R "$MOUNT_POINT/Slack.app" output/
+          hdiutil detach "$MOUNT_POINT" -quiet
 
-          # Parse the HTML to find the .dmg download link.
-          # This grep/sed combination looks for lines containing ".dmg" and extracts the URL from href attributes.
-          # It assumes the structure includes an anchor tag with an href pointing to the DMG.
-          # Added -m 1 to grep to stop after first match for efficiency
-          DMG_DOWNLOAD_URL=$(echo "$HTML_CONTENT" | grep -m 1 -oE 'href="[^"]+\.dmg"' | sed 's/href="//;s/"$//')
-
-          if [ -z "$DMG_DOWNLOAD_URL" ]; then
-            echo "Error: Could not find a .dmg download URL on the Slack macOS download page."
-            exit 1
-          fi
-
-          echo "Found DMG download URL: $DMG_DOWNLOAD_URL"
-          
-          echo "Downloading latest Slack DMG from discovered URL..."
-          mkdir -p input # Ensure the 'input' directory exists immediately before download
-          
-          # Use the extracted URL for the actual download
-          curl -L "$DMG_DOWNLOAD_URL" \
-            -o "input/Slack-latest.dmg" \
-            -H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36"
-          
-          echo "Downloaded Slack DMG to input/Slack-latest.dmg"
-          ls -la "input/Slack-latest.dmg" # Diagnostic: Verify file exists and its size
-          file "input/Slack-latest.dmg" # Diagnostic: CRITICAL - Check the actual file type
-          
-          # Diagnostic: If the file is small or not a DMG, print its content
-          FILE_SIZE=$(stat -f %z "input/Slack-latest.dmg")
-          if [ "$FILE_SIZE" -lt 1000000 ] || ! file "input/Slack-latest.dmg" | grep -q "Apple disk image"; then
-              echo "--- START: Content of downloaded Slack-latest.dmg (likely not a valid DMG) ---"
-              head -n 20 "input/Slack-latest.dmg" || cat "input/Slack-latest.dmg" # Print first 20 lines or full content if smaller
-              echo "--- END: Content of downloaded Slack-latest.dmg ---"
-          fi
-          
-      - name: Extract Slack.app from DMG and get version
+      - name: Download and extract IntuneAppUtil
         run: |
-          set -eux
-          set -o pipefail # Ensure any error in a pipeline causes the script to exit immediately
-          DMG_PATH="input/Slack-latest.dmg" # Use relative path
-          APP_NAME="Slack.app" # Expected name of the application bundle inside the DMG
-          
-          echo "Attaching DMG for Slack.app extraction..."
-          # Attach the DMG, allowing it to be mounted
-          MOUNT_OUTPUT=$(hdiutil attach "$DMG_PATH" -nobrowse -noverify)
-          echo "hdiutil attach output:"
-          echo "$MOUNT_OUTPUT"
+          echo "Downloading IntuneAppUtil DMG..."
+          curl -L "https://aka.ms/intune-app-wrapping-tool-mac" -o wrapped/IntuneAppUtil.dmg
+          echo "Mounting IntuneAppUtil DMG..."
+          MOUNT_POINT=$(hdiutil attach wrapped/IntuneAppUtil.dmg -nobrowse -quiet | grep Volumes | awk '{print $3}')
+          echo "Copying IntuneAppUtil binary..."
+          cp "$MOUNT_POINT/IntuneAppUtil" wrapped/IntuneAppUtil
+          chmod +x wrapped/IntuneAppUtil
+          hdiutil detach "$MOUNT_POINT" -quiet
 
-          # Extract the mount point, robustly handling spaces in the volume name
-          MOUNTPOINT=$(echo "$MOUNT_OUTPUT" | grep '/Volumes/' | head -n 1 | sed -E 's/.*(\/Volumes\/.*)/\1/')
-          echo "Mounted DMG at: $MOUNTPOINT"
-
-          if [ -z "$MOUNTPOINT" ]; then
-            echo "Error: Could not find mount point for Slack DMG."
-            exit 1
-          fi
-
-          # Copy the .app bundle to a temporary directory for packaging
-          echo "Copying $APP_NAME from DMG to temporary directory..."
-          cp -R "$MOUNTPOINT/$APP_NAME" "temp_app_dir/$APP_NAME"
-          echo "$APP_NAME copied."
-
-          # Read the CFBundleShortVersionString from the copied Slack.app's Info.plist
-          VERSION=$(defaults read "temp_app_dir/$APP_NAME/Contents/Info.plist" CFBundleShortVersionString || echo "unknown")
-          echo "SLACK_VERSION=$VERSION" >> $GITHUB_ENV
-          echo "Slack version: $VERSION"
-
-          echo "Detaching DMG..."
-          hdiutil detach "$MOUNTPOINT" -quiet
-          echo "DMG detached."
-
-      - name: Create .intunemac package using IntuneAppUtil
+      - name: Wrap Slack.app as .intunemac
         run: |
-          set -eux
-          set -o pipefail # Ensure any error in a pipeline causes the script to exit immediately
-          # Run the IntuneAppUtil on the extracted Slack.app
-          # Output to the 'output' directory with a versioned name
-          ./tools/IntuneAppUtil -c "temp_app_dir" -o "output" -n "Slack-macOS-$SLACK_VERSION.intunemac"
-          echo "Slack-macOS-$SLACK_VERSION.intunemac created."
+          ./wrapped/IntuneAppUtil -c output/Slack.app -o output -i "com.tinyspeck.slackmacgap"
 
-      - name: Upload .intunemac Artifact to GitHub
-        uses: actions/upload-artifact@v4
-        with:
-          name: slack-macos-intunemac
-          path: output/*.intunemac
-          retention-days: 7
-
-      - name: Set up Python for Intune Upload
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install msal requests
-
-      - name: Upload .intunemac to Microsoft Intune
-        env:
-          TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          # The path to the generated .intunemac file
-          INTUNEMAC_PATH: "output/Slack-macOS-${{ env.SLACK_VERSION }}.intunemac"
-          APP_DISPLAY_NAME: "Slack macOS (Auto-packaged - ${{ env.SLACK_VERSION }})"
-        run: |
-          set -eux
-          # Check if the .intunemac file exists before attempting to upload
-          if [ ! -f "$INTUNEMAC_PATH" ]; then
-            echo "Error: .intunemac file not found at $INTUNEMAC_PATH"
-            exit 1
-          fi
-
-          python <<EOF
-import os
-import json
-import base64
-import time
-from msal import ConfidentialClientApplication # Using ConfidentialClientApplication for client credentials flow
-import requests
-
-# Configuration for your Azure AD app registration
-TENANT_ID = os.environ.get("TENANT_ID")
-CLIENT_ID = os.environ.get("CLIENT_ID")
-CLIENT_SECRET = os.environ.get("CLIENT_SECRET")
-AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
-SCOPE = ["https://graph.microsoft.com/.default"]
-
-# Path to the .intunemac file
-INTUNEMAC_FILE_PATH = os.environ.get("INTUNEMAC_PATH")
-APP_DISPLAY_NAME = os.environ.get("APP_DISPLAY_NAME")
-APP_DESCRIPTION = "Automatically packaged Slack Desktop app for macOS."
-
-def acquire_token_with_client_credentials():
-    app = ConfidentialClientApplication(
-        client_id=CLIENT_ID,
-        client_credential=CLIENT_SECRET,
-        authority=AUTHORITY
-    )
-    result = app.acquire_token_for_client(scopes=SCOPE)
-    if "access_token" in result:
-        return result["access_token"]
-    else:
-        print("Failed to acquire token:")
-        print(f"Error: {result.get('error')}")
-        print(f"Error Description: {result.get('error_description')}")
-        print(f"Correlation ID: {result.get('correlation_id')}")
-        raise Exception("Authentication failed.")
-
-def upload_intunemac_to_intune(token, file_path, display_name, description):
-    graph_endpoint = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps"
-    
-    file_size = os.path.getsize(file_path)
-    print(f"File size of {os.path.basename(file_path)}: {file_size} bytes")
-
-    with open(file_path, 'rb') as f:
-        file_content = f.read()
-
-    app_payload = {
-        "@odata.type": "#microsoft.graph.macOSLobApp",
-        "displayName": display_name,
-        "description": description,
-        "publisher": "Slack Technologies, Inc.",
-        "fileName": os.path.basename(file_path),
-        "bundleId": "com.tinyspeck.slackmacgap", # Standard Slack bundle ID
-        "minimumSupportedOperatingSystem": {
-            "v10_13": True # macOS 10.13 and above (adjust as needed, check Slack's docs)
-        },
-        "version": os.environ.get('SLACK_VERSION'), # Use the version extracted earlier
-        "committedContentVersion": "1" # Required, typically incremented on updates
-    }
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-
-    try:
-        # Step 1: Create the app entry in Intune and get the upload URL
-        print(f"Creating app entry in Intune for {display_name}...")
-        response = requests.post(graph_endpoint, headers=headers, json=app_payload)
-        response.raise_for_status() # Raise an exception for HTTP errors
-        app_data = response.json()
-        app_id = app_data['id']
-        upload_url = app_data['uploadUrl']
-        print(f"Successfully created app entry in Intune with ID: {app_id}")
-        print(f"Content upload URL received: {upload_url}")
-
-        # Step 2: Upload the content to the received uploadUrl
-        # For .intunemac files, the upload URL is a direct Azure Blob Storage SAS URL.
-        # We need to perform a PUT request with the binary content.
-        upload_headers = {
-            "x-ms-blob-type": "BlockBlob" # Required for Azure Blob Storage PUT operations
-        }
-        
-        print(f"Uploading {os.path.basename(file_path)} content to Azure Blob Storage...")
-        upload_response = requests.put(upload_url, headers=upload_headers, data=file_content)
-        upload_response.raise_for_status()
-        
-        print("File content uploaded successfully to Azure Blob Storage.")
-
-        # Step 3: Commit the content to Intune (often a PATCH to the mobileApp resource)
-        # For macOS LOB apps, the uploadUrl and direct PUT usually handle the content registration.
-        # A separate PATCH to set 'committedContentVersion' might be needed for updates or specific scenarios.
-        # For a new app creation, the initial POST often triggers content processing.
-        # If issues arise, investigate Intune Graph API docs for macOS LOB app content commitment.
-        print("Application content processing by Intune initiated. Check Intune Admin Center for status.")
-
-    except requests.exceptions.RequestException as e:
-        print(f"Error during Graph API call: {e}")
-        if e.response is not None:
-            print(f"Response status: {e.response.status_code}")
-            print(f"Response body: {e.response.text}")
-        raise
-
-if __name__ == "__main__":
-    try:
-        if not all([TENANT_ID, CLIENT_ID, CLIENT_SECRET]):
-            raise ValueError("Azure AD secrets (TENANT_ID, CLIENT_ID, CLIENT_SECRET) must be set as environment variables.")
-        if not INTUNEMAC_FILE_PATH or not os.path.exists(INTUNEMAC_FILE_PATH):
-            raise FileNotFoundError(f"INTUNEMAC_FILE_PATH not found or invalid: {INTUNEMAC_FILE_PATH}")
-
-        # Acquire access token
-        access_token = acquire_token_with_client_credentials()
-        print("Access token acquired successfully.")
-
-        # Upload the .intunemac file
-        upload_intunemac_to_intune(access_token, INTUNEMAC_FILE_PATH, APP_DISPLAY_NAME, APP_DESCRIPTION)
-        print("Slack macOS app upload process completed successfully.")
-
-    except Exception as e:
-        print(f"An error occurred during Intune upload: {e}")
-        exit(1)
-EOF
+      - name: List output files
+        run: ls -lh output
