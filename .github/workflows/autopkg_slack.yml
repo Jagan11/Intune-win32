@@ -1,0 +1,181 @@
+name: Build Slack Package
+
+on:
+  workflow_dispatch: # Allows manual triggering of the workflow
+
+jobs:
+  build:
+    runs-on: macos-latest # Specifies that this job runs on a macOS runner
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Show current working directory and recipes folder for debug
+        # Display current directory and contents of the 'recipes' folder for debugging purposes.
+        run: |
+          echo "Current working directory:"
+          pwd
+          echo "Repository root contents:"
+          ls -la
+          echo "Recipes folder contents:"
+          ls -la ./recipes || true # Add || true to prevent failure if folder is empty or not found
+
+      - name: Clean AutoPkg cached recipe repositories
+        # Remove old AutoPkg recipe caches to ensure a clean slate and avoid conflicts.
+        run: |
+          echo "Removing old AutoPkg recipe caches..."
+          rm -rf ~/Library/AutoPkg/RecipeRepos/* || true # Use || true to prevent failure if directory doesn't exist
+          echo "Cache cleanup done."
+
+      - name: Download and install AutoPkg
+        # Download the AutoPkg installer package.
+        run: |
+          echo "Downloading AutoPkg installer..."
+          curl -L -o autopkg.pkg https://github.com/autopkg/autopkg/releases/download/v2.7.5/AutoPkg-2.7.5.pkg
+
+          if [ ! -f autopkg.pkg ]; then
+            echo "Error: AutoPkg installer package missing!"
+            exit 1
+          fi
+
+          # Verify the downloaded file size to ensure it's not a partial download or error page.
+          filesize=$(stat -f%z autopkg.pkg)
+          echo "Installer package size: $filesize bytes"
+
+          if [ "$filesize" -lt 100000 ]; then # Minimum expected size for a valid installer
+            echo "Error: Installer package is suspiciously small; aborting."
+            exit 1
+          fi
+
+          # Install AutoPkg silently.
+          echo "Installing AutoPkg..."
+          sudo installer -pkg autopkg.pkg -target /
+          echo "AutoPkg version:"
+          autopkg version
+
+      - name: Add AutoPkg recipe repositories
+        # Add the official AutoPkg recipes repository. This contains many common app recipes, including Slack.
+        run: |
+          echo "Adding official AutoPkg recipes repo..."
+          autopkg repo-add https://github.com/autopkg/recipes.git
+
+          # Note: No need to explicitly add './recipes' if your custom recipes are meant to be found
+          # by AutoPkg's default search path (current working directory and its subfolders).
+          # If you have custom processors, ensure AUTO_PKG_PROCESSOR_PATHS is set correctly.
+
+          echo "Listing all recipes to confirm..."
+          autopkg list-recipes
+
+      - name: Set environment variable for custom processors (if any)
+        # Set an environment variable if you have custom AutoPkg processors in your 'processors' folder.
+        run: |
+          echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
+
+      - name: Run Slack.download.recipe with verbose output
+        # Execute the Slack.download.recipe. This recipe will download the latest Slack.app
+        # and place it into AutoPkg's cache directory.
+        run: autopkg run Slack.download.recipe --verbose
+
+      - name: Debug - List all files in AutoPkg Cache Directory
+        # This debug step lists the contents of the AutoPkg cache directory.
+        # It helps verify that the Slack.app was downloaded and processed correctly.
+        run: |
+          # Directly use the standard AutoPkg Cache Directory path.
+          RECIPE_CACHE_DIR="$HOME/Library/AutoPkg/Cache"
+          
+          if [ -z "$RECIPE_CACHE_DIR" ]; then
+            echo "Error: AutoPkg CacheDir is empty or could not be determined."
+            exit 1
+          fi
+
+          echo "AutoPkg Cache Directory: $RECIPE_CACHE_DIR"
+          
+          if [ ! -d "$RECIPE_CACHE_DIR" ]; then
+            echo "Error: AutoPkg Cache Directory does not exist: $RECIPE_CACHE_DIR"
+          fi
+
+          echo "Listing directory contents (might be empty if recipe just ran):"
+          ls -la "$RECIPE_CACHE_DIR" || true # '|| true' allows the step to pass even if the directory is empty
+          echo "Listing all files recursively:"
+          find "$RECIPE_CACHE_DIR" -type f || true # '|| true' allows the step to pass even if no files are found
+
+      - name: Find downloaded Slack.app artifact
+        id: find-slack-app # Assign an ID to this step to reference its outputs later
+        # Locate the Slack.app bundle within the AutoPkg cache directory.
+        run: |
+          RECIPE_CACHE_DIR="$HOME/Library/AutoPkg/Cache"
+          
+          if [ -z "$RECIPE_CACHE_DIR" ]; then
+            echo "Error: AutoPkg CacheDir is empty for artifact search."
+            exit 1
+          fi
+
+          if [ ! -d "$RECIPE_CACHE_DIR" ]; then
+            echo "Error: AutoPkg Cache Directory does not exist for artifact search: $RECIPE_CACHE_DIR"
+            exit 1
+          fi
+
+          # Find the 'Slack.app' directory. This is the unarchived application bundle.
+          SLACK_APP_PATH=$(find "$RECIPE_CACHE_DIR" -type d -name "Slack.app" | head -n 1)
+
+          if [ -z "$SLACK_APP_PATH" ]; then
+            echo "::error ::Slack.app not found in AutoPkg cache directory. Check previous AutoPkg run logs."
+            echo "Contents of $RECIPE_CACHE_DIR for debugging:"
+            ls -la "$RECIPE_CACHE_DIR"
+            find "$RECIPE_CACHE_DIR" -type f
+            exit 1
+          fi
+
+          echo "Found Slack.app at: $SLACK_APP_PATH"
+          # Set the path to the Slack.app as an environment variable for subsequent steps.
+          echo "SLACK_APP_PATH=$SLACK_APP_PATH" >> $GITHUB_ENV
+
+      - name: Extract Bundle ID and Version for Intune
+        id: extract-info # Assign an ID to this step to reference its outputs later
+        # Use PlistBuddy to extract the Bundle ID and Version from the Slack.app's Info.plist.
+        run: |
+          INFO_PLIST_PATH="${{ env.SLACK_APP_PATH }}/Contents/Info.plist"
+          
+          if [ ! -f "$INFO_PLIST_PATH" ]; then
+            echo "::error ::Info.plist not found for Slack.app at $INFO_PLIST_PATH"
+            exit 1
+          fi
+
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO_PLIST_PATH")
+          APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO_PLIST_PATH")
+
+          echo "Extracted Bundle ID: $BUNDLE_ID"
+          echo "Extracted App Version: $APP_VERSION"
+
+          # Create a text file with Intune-relevant information.
+          INFO_FILE="slack_intune_info.txt"
+          echo "--- Slack Intune Details ---" > "$INFO_FILE"
+          echo "Bundle ID (for Detection Rules): $BUNDLE_ID" >> "$INFO_FILE"
+          echo "Version (for Display/Detection): $APP_VERSION" >> "$INFO_FILE"
+          echo "" >> "$INFO_FILE"
+          echo "Common Install Command (if repackaged as PKG): sudo installer -pkg <package_name>.pkg -target /" >> "$INFO_FILE"
+          echo "Common Uninstall Command: /bin/rm -rf '/Applications/Slack.app'" >> "$INFO_FILE"
+          echo "----------------------------" >> "$INFO_FILE"
+
+          echo "Intune info saved to $INFO_FILE"
+          ls -la "$INFO_FILE" # Show the created file in logs
+
+          # Make the path to the info file available as a step output for artifact upload.
+          echo "INFO_FILE=$INFO_FILE" >> $GITHUB_OUTPUT
+
+      - name: Upload the Slack.app bundle as artifact
+        # Upload the Slack.app bundle as a workflow artifact. GitHub will automatically zip this directory.
+        uses: actions/upload-artifact@v4
+        with:
+          name: slack-app-bundle # Name of the artifact
+          path: ${{ env.SLACK_APP_PATH }} # Path to the Slack.app bundle
+          retention-days: 7 # How long to keep the artifact
+
+      - name: Upload Intune info file as artifact
+        # Upload the text file containing Bundle ID and Version as a separate artifact.
+        uses: actions/upload-artifact@v4
+        with:
+          name: slack-intune-info # Name of the artifact
+          path: ${{ steps.extract-info.outputs.INFO_FILE }} # Path to the info text file
+          retention-days: 7 # How long to keep the artifact
