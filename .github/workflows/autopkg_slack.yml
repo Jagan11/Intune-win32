@@ -72,15 +72,68 @@ jobs:
         run: |
           echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
 
-      # Removed the 'Update Slack.download.recipe trust info' step.
-      # This recipe is located in your local 'recipes' folder, not as an override,
-      # so 'update-trust-info' is not applicable and causes unnecessary output.
-      # AutoPkg will proceed with a warning if trust info is missing, which is fine for automation.
-
       - name: Run Slack.download.recipe with verbose output
-        # Execute the Slack.download.recipe. This recipe will download the latest Slack.app
+        # Execute the Slack.download.recipe. This recipe will download the latest Slack.app DMG
         # and place it into AutoPkg's cache directory.
         run: autopkg run Slack.download.recipe --verbose
+
+      - name: Mount DMG and Extract Slack.app
+        id: extract_app
+        run: |
+          RECIPE_CACHE_DIR="$HOME/Library/AutoPkg/Cache"
+          SLACK_DOWNLOAD_DIR="$RECIPE_CACHE_DIR/com.architrave.download.Slack/downloads"
+          SLACK_DMG_PATH=$(find "$SLACK_DOWNLOAD_DIR" -name "Slack.dmg" -type f | head -n 1)
+
+          if [ -z "$SLACK_DMG_PATH" ]; then
+            echo "::error ::Slack.dmg not found in $SLACK_DOWNLOAD_DIR."
+            echo "Contents of $SLACK_DOWNLOAD_DIR for debugging:"
+            ls -la "$SLACK_DOWNLOAD_DIR" || true
+            exit 1
+          fi
+
+          echo "Found Slack DMG: $SLACK_DMG_PATH"
+          
+          # Mount the DMG
+          DMG_MOUNT_OUTPUT=$(hdiutil attach "$SLACK_DMG_PATH" -nobrowse -mountpoint /Volumes/SlackAppMount 2>&1 || true)
+          MOUNT_POINT=$(echo "$DMG_MOUNT_OUTPUT" | grep '/Volumes/SlackAppMount' | awk '{print $NF}')
+
+          if [ -z "$MOUNT_POINT" ]; then
+            echo "::error ::Failed to mount Slack DMG. Full hdiutil attach output:"
+            echo "$DMG_MOUNT_OUTPUT"
+            exit 1
+          fi
+          echo "Mounted DMG at: $MOUNT_POINT"
+
+          # Define target directory for extracted app (e.g., directly in the recipe's cache folder)
+          EXTRACTED_APP_DIR="$RECIPE_CACHE_DIR/com.architrave.download.Slack/extracted_app"
+          mkdir -p "$EXTRACTED_APP_DIR"
+          
+          # Copy the .app bundle from the mounted DMG to the extracted_app directory
+          SLACK_APP_SOURCE="$MOUNT_POINT/Slack.app"
+          if [ ! -d "$SLACK_APP_SOURCE" ]; then
+            echo "::error ::Slack.app not found inside mounted DMG at $SLACK_APP_SOURCE. Contents of mount point:"
+            ls -la "$MOUNT_POINT" || true
+            exit 1
+          fi
+          
+          cp -R "$SLACK_APP_SOURCE" "$EXTRACTED_APP_DIR/"
+          echo "Copied Slack.app to: $EXTRACTED_APP_DIR/Slack.app"
+          
+          # Set the path to the extracted app as an environment variable for subsequent steps
+          echo "SLACK_APP_PATH=$EXTRACTED_APP_DIR/Slack.app" >> $GITHUB_ENV
+          echo "MOUNT_POINT=$MOUNT_POINT" >> $GITHUB_OUTPUT # Export mount point for unmount step
+
+      - name: Unmount Slack DMG
+        # This step ensures the DMG is detached even if subsequent steps fail.
+        if: always() && steps.extract_app.outputs.MOUNT_POINT # Only run if a mount point was successfully set
+        run: |
+          MOUNT_POINT="${{ steps.extract_app.outputs.MOUNT_POINT }}"
+          if [ -n "$MOUNT_POINT" ]; then
+            echo "Unmounting DMG at: $MOUNT_POINT"
+            hdiutil detach "$MOUNT_POINT" -quiet || true # Use || true to prevent failure on already unmounted
+          else
+            echo "No DMG mount point found to detach."
+          fi
 
       - name: Debug - List all files in AutoPkg Cache Directory
         # This debug step lists the contents of the AutoPkg cache directory.
@@ -92,7 +145,7 @@ jobs:
           if [ -z "$RECIPE_CACHE_DIR" ]; then
             echo "Error: AutoPkg CacheDir is empty or could not be determined."
             exit 1
-          fi # Fixed syntax: changed 'F' to 'fi'
+          fi
 
           echo "AutoPkg Cache Directory: $RECIPE_CACHE_DIR"
           
@@ -103,45 +156,37 @@ jobs:
           echo "Listing directory contents (might be empty if recipe just ran):"
           ls -la "$RECIPE_CACHE_DIR" || true # '|| true' allows the step to pass even if the directory is empty
           echo "Listing all files recursively:"
-          find "$RECIPE_CACHE_DIR" -type f || true # '|| true' allows the step to pass even if no files are found
+          find "$RECIPE_CACHE_DIR" -type f -o -type d || true # '|| true' allows the step to pass even if no files are found
 
-      - name: Find downloaded Slack.app artifact
+      - name: Find downloaded Slack.app artifact # This step is now primarily for verification
         id: find-slack-app # Assign an ID to this step to reference its outputs later
-        # Locate the Slack.app bundle within the AutoPkg cache directory.
+        # Verify the presence of the extracted Slack.app bundle.
         run: |
-          RECIPE_CACHE_DIR="$HOME/Library/AutoPkg/Cache"
+          # The SLACK_APP_PATH is already set by the 'Mount DMG and Extract Slack.app' step.
+          # This step just confirms its existence for clarity in the logs.
+          if [ -z "${{ env.SLACK_APP_PATH }}" ]; then
+            echo "::error ::SLACK_APP_PATH environment variable not set. Extraction likely failed."
+            exit 1
+          fi
+          if [ ! -d "${{ env.SLACK_APP_PATH }}" ]; then
+            echo "::error ::Extracted Slack.app directory does not exist at ${{ env.SLACK_APP_PATH }}."
+            exit 1
+          fi
+          echo "Confirmed Slack.app exists at: ${{ env.SLACK_APP_PATH }}"
           
-          if [ -z "$RECIPE_CACHE_DIR" ]; then
-            echo "Error: AutoPkg CacheDir is empty for artifact search."
-            exit 1
-          fi
-
-          if [ ! -d "$RECIPE_CACHE_DIR" ]; then
-            echo "Error: AutoPkg Cache Directory does not exist for artifact search: $RECIPE_CACHE_DIR"
-            exit 1
-          fi
-
-          # Find the 'Slack.app' directory. This is the unarchived application bundle.
-          # Note: Slack.dmg is downloaded, but AutoPkg extracts the .app from it.
-          # So we look for the .app here.
-          SLACK_APP_PATH=$(find "$RECIPE_CACHE_DIR" -type d -name "Slack.app" | head -n 1)
-
-          if [ -z "$SLACK_APP_PATH" ]; then
-            echo "::error ::Slack.app not found in AutoPkg cache directory. Check previous AutoPkg run logs."
-            echo "Contents of $RECIPE_CACHE_DIR for debugging:"
-            ls -la "$RECIPE_CACHE_DIR"
-            find "$RECIPE_CACHE_DIR" -type f
-            exit 1
-          fi
-
-          echo "Found Slack.app at: $SLACK_APP_PATH"
-          # Set the path to the Slack.app as an environment variable for subsequent steps.
-          echo "SLACK_APP_PATH=$SLACK_APP_PATH" >> $GITHUB_ENV
+          # No need to set SLACK_APP_PATH again, but we can set an output indicating success
+          echo "app_found=true" >> $GITHUB_OUTPUT
 
       - name: Extract Bundle ID and Version for Intune
         id: extract-info # Assign an ID to this step to reference its outputs later
         # Use PlistBuddy to extract the Bundle ID and Version from the Slack.app's Info.plist.
         run: |
+          # Ensure SLACK_APP_PATH is available from environment
+          if [ -z "${{ env.SLACK_APP_PATH }}" ]; then
+            echo "::error ::SLACK_APP_PATH environment variable is missing for Info.plist extraction."
+            exit 1
+          fi
+
           INFO_PLIST_PATH="${{ env.SLACK_APP_PATH }}/Contents/Info.plist"
           
           if [ ! -f "$INFO_PLIST_PATH" ]; then
