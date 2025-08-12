@@ -14,6 +14,21 @@ jobs:
       - name: Download and install AutoPkg
         run: |
           curl -L -o autopkg.pkg https://github.com/autopkg/autopkg/releases/latest/download/AutoPkg-2.7.5.pkg
+          # Check if file downloaded successfully and is of reasonable size
+          if [ ! -f autopkg.pkg ]; then
+            echo "Error: AutoPkg installer package not found!"
+            exit 1
+          fi
+          FILESIZE=$(stat -f%z autopkg.pkg)
+          echo "Downloaded AutoPkg installer size: $FILESIZE bytes"
+          if [ "$FILESIZE" -lt 100000 ]; then
+            echo "Error: Downloaded installer package is too small, likely a failed download."
+            ls -l autopkg.pkg
+            cat autopkg.pkg
+            exit 1
+          fi
+          ls -l
+          file autopkg.pkg
           sudo installer -pkg autopkg.pkg -target /
           autopkg --version
 
