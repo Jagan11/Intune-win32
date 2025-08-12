@@ -11,20 +11,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Show current directory and recipes folder for debug
+      - name: Show current working directory and recipes folder for debug
         run: |
-          echo "Current working directory:"
+          echo "PWD:"
           pwd
-          echo "Repository root contents:"
+          echo "Listing repo root contents:"
           ls -la
-          echo "Recipes folder contents:"
+          echo "Listing recipes folder contents:"
           ls -la ./recipes
 
-      - name: Clean AutoPkg cached recipe repos to avoid stale configs
+      - name: Clean AutoPkg cached recipe repositories
         run: |
-          echo "Cleaning old AutoPkg recipe repos..."
+          echo "Removing old AutoPkg recipe caches..."
           rm -rf ~/Library/AutoPkg/RecipeRepos/*
-          echo "Cleaned."
+          echo "Cache cleanup done."
 
       - name: Download and install AutoPkg
         run: |
@@ -32,60 +32,60 @@ jobs:
           curl -L -o autopkg.pkg https://github.com/autopkg/autopkg/releases/download/v2.7.5/AutoPkg-2.7.5.pkg
 
           if [ ! -f autopkg.pkg ]; then
-            echo "Error: AutoPkg installer package missing!"
+            echo "Error: AutoPkg installer not found!"
             exit 1
           fi
 
-          FILESIZE=$(stat -f%z autopkg.pkg)
-          echo "Downloaded installer size: $FILESIZE bytes"
+          filesize=$(stat -f%z autopkg.pkg)
+          echo "Installer package size: $filesize bytes"
 
-          if [ "$FILESIZE" -lt 100000 ]; then
-            echo "Error: installer package is too small; likely failed download."
+          if [ "$filesize" -lt 100000 ]; then
+            echo "Error: Installer package is suspiciously small; aborting."
             exit 1
           fi
 
           echo "Installing AutoPkg..."
           sudo installer -pkg autopkg.pkg -target /
+          echo "AutoPkg version:"
           autopkg version
 
       - name: Add AutoPkg recipe repositories
         run: |
+          echo "Adding official AutoPkg recipes repo..."
           autopkg repo-add https://github.com/autopkg/recipes.git
+
+          echo "Adding local vendored recipes folder..."
           autopkg repo-add ./recipes
+
+          echo "Listing all recipes to confirm..."
           autopkg list-recipes
 
-      - name: Set environment variable for custom processors, if any
-        run: echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
+      - name: Set environment variable for custom processors (if any)
+        run: |
+          echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
 
-      - name: Run VisualStudioCode.download.recipe only
+      # Munki step skipped for now since MUNKI_REPO is not set
+
+      - name: Run VisualStudioCode.download.recipe with verbose output
         run: autopkg run VisualStudioCode.download.recipe --verbose
 
-      - name: Debug - List all files in AutoPkg CacheDir (for troubleshooting)
+      - name: Debug - List all files in AutoPkg Cache Directory
         run: |
           RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
-          echo "AutoPkg Cache Directory: $RECIPE_CACHE_DIR"
-          echo "Listing all files in cache directory:"
+          echo "AutoPkg CacheDir: $RECIPE_CACHE_DIR"
+          echo "Listing all files in cache directory for debugging:"
           find "$RECIPE_CACHE_DIR" -type f
 
-      - name: Find downloaded package artifact (including .zip)
+      - name: Find downloaded artifact (.intunemac, .pkg, .dmg, or .zip)
         id: find-artifact
         run: |
           RECIPE_CACHE_DIR=$(autopkg pref-read CacheDir)
-          echo "AutoPkg Cache Directory: $RECIPE_CACHE_DIR"
-
           ARTIFACT=$(find "$RECIPE_CACHE_DIR" -type f \( -name "*.intunemac" -o -name "*.pkg" -o -name "*.dmg" -o -name "*.zip" \) | head -n 1)
 
           if [ -z "$ARTIFACT" ]; then
-            echo "::error ::No package artifact (.intunemac, .pkg, .dmg, .zip) found in cache directory."
+            echo "::error ::No package artifact (.intunemac, .pkg, .dmg, .zip) found in cache."
             exit 1
           fi
 
-          echo "Package artifact found: $ARTIFACT"
-          echo "ARTIFACT=$ARTIFACT" >> $GITHUB_ENV
-
-      - name: Upload package artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: vscode-package
-          path: ${{ env.ARTIFACT }}
-          retention-days: 7
+          echo "Found package artifact: $ARTIFACT"
+          echo "ARTIFACT=$ARTIFACT
