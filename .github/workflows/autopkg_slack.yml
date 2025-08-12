@@ -72,10 +72,17 @@ jobs:
         run: |
           echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
 
+      - name: Update Slack.download.recipe trust info
+        # This crucial step updates and accepts the trust info for the recipe.
+        # The '--force' flag is necessary for non-interactive execution.
+        run: |
+          echo "Updating trust info for Slack.download.recipe..."
+          autopkg update-trust-info Slack.download.recipe --force
+
       - name: Run Slack.download.recipe with verbose output
         # Execute the Slack.download.recipe. This recipe will download the latest Slack.app
         # and place it into AutoPkg's cache directory.
-        # Removed the '--force' flag as it is not supported in AutoPkg 2.7.5.
+        # The '--force' flag was removed as it is not supported for 'autopkg run' in AutoPkg 2.7.5.
         run: autopkg run Slack.download.recipe --verbose
 
       - name: Debug - List all files in AutoPkg Cache Directory
