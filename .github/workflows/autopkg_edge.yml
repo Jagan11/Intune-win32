@@ -63,7 +63,7 @@ jobs:
           autopkg list-recipes
 
       - name: Set environment variable for custom processors (if any)
-        # Set an environment variable if you have custom AutoPkg processors in your 'processors' folder.
+        # Set an environment variable if you have custom processors in your 'processors' folder.
         run: |
           echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
 
@@ -90,24 +90,41 @@ jobs:
 
       - name: Extract Bundle ID and Version for Intune
         id: extract_info
-        # Use pkgutil to extract the bundle ID from the PKG, and then PlistBuddy for version.
         run: |
-          # Create a temporary installation directory
-          TEMP_INSTALL_DIR="/private/tmp/EdgeInstallTemp_$(uuidgen)"
-          mkdir -p "$TEMP_INSTALL_DIR"
+          # Define temporary directories for package expansion and payload extraction
+          PKG_EXPAND_DIR="/private/tmp/EdgePkgExpand_$(uuidgen)"
+          APP_EXTRACT_DIR="/private/tmp/EdgeAppExtract_$(uuidgen)"
           
-          # Perform a dummy install to get the app bundle
-          echo "Performing dummy install of ${{ env.EDGE_INSTALLER_PATH }} to $TEMP_INSTALL_DIR..."
-          sudo installer -pkg "${{ env.EDGE_INSTALLER_PATH }}" -target "$TEMP_INSTALL_DIR" -verbose -allowUntrusted || { echo "::error ::Dummy install failed."; exit 1; }
+          echo "Expanding PKG to: $PKG_EXPAND_DIR"
+          mkdir -p "$PKG_EXPAND_DIR"
+          # Expand the downloaded .pkg file
+          pkgutil --expand "${{ env.EDGE_INSTALLER_PATH }}" "$PKG_EXPAND_DIR" || { echo "::error ::Failed to expand PKG."; exit 1; }
 
-          # Find the installed app within the temporary directory
-          INSTALLED_APP_PATH=$(find "$TEMP_INSTALL_DIR" -type d -name "Microsoft Edge.app" | head -n 1)
+          # Find the Payload file within the expanded package structure
+          # Microsoft Edge PKG is a distribution package, so Payload is often nested (e.g., 'MicrosoftEdgeBeta.pkg/Payload').
+          PAYLOAD_FILE=$(find "$PKG_EXPAND_DIR" -name "Payload" -type f | head -n 1)
 
-          if [ -z "$INSTALLED_APP_PATH" ]; then
-            echo "::error ::Microsoft Edge.app not found after dummy install in $TEMP_INSTALL_DIR."
-            ls -la "$TEMP_INSTALL_DIR" || true # Debug contents
+          if [ -z "$PAYLOAD_FILE" ]; then
+            echo "::error ::Payload file not found in expanded PKG. Contents of $PKG_EXPAND_DIR for debugging:"
+            ls -laR "$PKG_EXPAND_DIR" || true
             exit 1
           fi
+          echo "Found Payload at: $PAYLOAD_FILE"
+
+          echo "Extracting app from Payload to: $APP_EXTRACT_DIR"
+          mkdir -p "$APP_EXTRACT_DIR"
+          # Decompress the Payload (gzip -d) and extract its contents (cpio -idmv)
+          (cd "$APP_EXTRACT_DIR" && cat "$PAYLOAD_FILE" | gzip -d | cpio -idmv) || { echo "::error ::Failed to extract Payload."; exit 1; }
+
+          # Find the Microsoft Edge.app bundle within the extracted contents
+          INSTALLED_APP_PATH=$(find "$APP_EXTRACT_DIR" -type d -name "Microsoft Edge.app" | head -n 1)
+
+          if [ -z "$INSTALLED_APP_PATH" ]; then
+            echo "::error ::Microsoft Edge.app not found in extracted payload at $APP_EXTRACT_DIR."
+            ls -laR "$APP_EXTRACT_DIR" || true # Debug contents of extracted dir
+            exit 1
+          fi
+          echo "Found Microsoft Edge.app at: $INSTALLED_APP_PATH"
 
           INFO_PLIST_PATH="$INSTALLED_APP_PATH/Contents/Info.plist"
           
@@ -135,9 +152,9 @@ jobs:
           echo "Intune info saved to $INFO_FILE"
           ls -la "$INFO_FILE" # Show the created file
 
-          # Clean up the temporary installation directory
-          echo "Cleaning up temporary install directory: $TEMP_INSTALL_DIR"
-          sudo rm -rf "$TEMP_INSTALL_DIR"
+          # Clean up temporary directories
+          echo "Cleaning up temporary directories: $PKG_EXPAND_DIR and $APP_EXTRACT_DIR"
+          sudo rm -rf "$PKG_EXPAND_DIR" "$APP_EXTRACT_DIR"
 
           # Make these values available as outputs for the job
           echo "INFO_FILE=$INFO_FILE" >> $GITHUB_OUTPUT
