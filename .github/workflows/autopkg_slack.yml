@@ -1,4 +1,4 @@
-name: Build Slack Package
+name: Build Slack Package (for macOS Intune)
 
 on:
   workflow_dispatch: # Allows manual triggering of the workflow
@@ -98,7 +98,6 @@ jobs:
           mkdir -p "$TEMP_MOUNT_POINT" # Create the mount point directory
           
           DMG_MOUNT_OUTPUT=$(hdiutil attach "$SLACK_DMG_PATH" -nobrowse -mountpoint "$TEMP_MOUNT_POINT" 2>&1 || true)
-          # Verify mount point explicitly captured from hdiutil output
           MOUNT_POINT=$(echo "$DMG_MOUNT_OUTPUT" | grep "$TEMP_MOUNT_POINT" | awk '{print $NF}')
 
           if [ -z "$MOUNT_POINT" ]; then
@@ -152,53 +151,45 @@ jobs:
             echo "No DMG mount point found to detach."
           fi
 
-      - name: Debug - List all files in AutoPkg Cache Directory
-        # This debug step lists the contents of the AutoPkg cache directory.
-        # It helps verify that the Slack.app was downloaded and processed correctly.
+      - name: Create PKG from Slack.app
+        id: create_pkg
         run: |
-          # Directly use the standard AutoPkg Cache Directory path.
+          # Define the output directory for the PKG
           RECIPE_CACHE_DIR="$HOME/Library/AutoPkg/Cache"
+          PKG_OUTPUT_DIR="$RECIPE_CACHE_DIR/com.architrave.download.Slack/pkg_output"
+          mkdir -p "$PKG_OUTPUT_DIR"
           
-          if [ -z "$RECIPE_CACHE_DIR" ]; then
-            echo "Error: AutoPkg CacheDir is empty or could not be determined."
-            exit 1
-          fi
+          # Get the app's version for the PKG filename
+          APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${{ env.SLACK_APP_PATH }}/Contents/Info.plist")
+          PKG_NAME="Slack-$APP_VERSION.pkg"
+          PKG_PATH="$PKG_OUTPUT_DIR/$PKG_NAME"
 
-          echo "AutoPkg Cache Directory: $RECIPE_CACHE_DIR"
+          echo "Creating PKG from Slack.app..."
+          # Use pkgbuild to create a component package from the .app bundle
+          # --component: path to the component to package
+          # --install-location: where the component will be installed on the target (usually /Applications)
+          # --version: version of the package
+          # --root: specifies the root path where the component exists during packaging.
+          #         Here, it's just one level above the Slack.app
+          # --identifier: a unique identifier for the package (e.g., com.yourorg.pkg.slack)
+          pkgbuild --component "${{ env.SLACK_APP_PATH }}" \
+                   --install-location "/Applications" \
+                   --version "$APP_VERSION" \
+                   --identifier "com.yourorg.pkg.slack" \
+                   "$PKG_PATH" || { echo "::error ::Failed to create PKG from Slack.app."; exit 1; }
+
+          echo "PKG created successfully at: $PKG_PATH"
+          ls -la "$PKG_OUTPUT_DIR" # List contents to confirm PKG is there
           
-          if [ ! -d "$RECIPE_CACHE_DIR" ]; then
-            echo "Error: AutoPkg Cache Directory does not exist: $RECIPE_CACHE_DIR"
-          fi
-
-          echo "Listing directory contents (might be empty if recipe just ran):"
-          ls -la "$RECIPE_CACHE_DIR" || true # '|| true' allows the step to pass even if the directory is empty
-          echo "Listing all files recursively:"
-          find "$RECIPE_CACHE_DIR" -type f -o -type d || true # '|| true' allows the step to pass even if no files are found
-
-      - name: Find downloaded Slack.app artifact # This step is now primarily for verification
-        id: find-slack-app # Assign an ID to this step to reference its outputs later
-        # Verify the presence of the extracted Slack.app bundle.
-        run: |
-          # The SLACK_APP_PATH is already set by the 'Mount DMG and Extract Slack.app' step.
-          # This step just confirms its existence for clarity in the logs.
-          if [ -z "${{ env.SLACK_APP_PATH }}" ]; then
-            echo "::error ::SLACK_APP_PATH environment variable not set. Extraction likely failed."
-            exit 1
-          fi
-          if [ ! -d "${{ env.SLACK_APP_PATH }}" ]; then
-            echo "::error ::Extracted Slack.app directory does not exist at ${{ env.SLACK_APP_PATH }}."
-            exit 1
-          fi
-          echo "Confirmed Slack.app exists at: ${{ env.SLACK_APP_PATH }}"
-          
-          # No need to set SLACK_APP_PATH again, but we can set an output indicating success
-          echo "app_found=true" >> $GITHUB_OUTPUT
+          # Set the path to the created PKG as an environment variable for artifact upload
+          echo "SLACK_PKG_PATH=$PKG_PATH" >> $GITHUB_ENV
+          echo "PKG_NAME=$PKG_NAME" >> $GITHUB_OUTPUT # Export PKG name for artifact naming
 
       - name: Extract Bundle ID and Version for Intune
         id: extract-info # Assign an ID to this step to reference its outputs later
         # Use PlistBuddy to extract the Bundle ID and Version from the Slack.app's Info.plist.
         run: |
-          # Ensure SLACK_APP_PATH is available from environment
+          # Ensure SLACK_APP_PATH is available from environment (set by Mount DMG step)
           if [ -z "${{ env.SLACK_APP_PATH }}" ]; then
             echo "::error ::SLACK_APP_PATH environment variable is missing for Info.plist extraction."
             exit 1
@@ -218,14 +209,14 @@ jobs:
           echo "Extracted App Version: $APP_VERSION"
 
           # Create a text file with Intune-relevant information.
-          INFO_FILE="slack_intune_info.txt"
-          echo "--- Slack Intune Details ---" > "$INFO_FILE"
+          INFO_FILE="slack_intune_info_macos.txt"
+          echo "--- Slack (macOS) Intune Details ---" > "$INFO_FILE"
           echo "Bundle ID (for Detection Rules): $BUNDLE_ID" >> "$INFO_FILE"
           echo "Version (for Display/Detection): $APP_VERSION" >> "$INFO_FILE"
           echo "" >> "$INFO_FILE"
-          echo "Common Install Command (if repackaged as PKG): sudo installer -pkg <package_name>.pkg -target /" >> "$INFO_FILE"
-          echo "Common Uninstall Command: /bin/rm -rf '/Applications/Slack.app'" >> "$INFO_FILE"
-          echo "----------------------------" >> "$INFO_FILE"
+          echo "Install Command: sudo installer -pkg ${{ steps.create_pkg.outputs.PKG_NAME }} -target /" >> "$INFO_FILE"
+          echo "Uninstall Command: /bin/rm -rf '/Applications/Slack.app'" >> "$INFO_FILE"
+          echo "------------------------------------" >> "$INFO_FILE"
 
           echo "Intune info saved to $INFO_FILE"
           ls -la "$INFO_FILE" # Show the created file in logs
@@ -233,18 +224,18 @@ jobs:
           # Make the path to the info file available as a step output for artifact upload.
           echo "INFO_FILE=$INFO_FILE" >> $GITHUB_OUTPUT
 
-      - name: Upload the Slack.app bundle as artifact
-        # Upload the Slack.app bundle as a workflow artifact. GitHub will automatically zip this directory.
+      - name: Upload the Slack PKG as artifact
+        # Upload the created PKG installer.
         uses: actions/upload-artifact@v4
         with:
-          name: slack-app-bundle # Name of the artifact
-          path: ${{ env.SLACK_APP_PATH }} # Path to the Slack.app bundle
+          name: slack-macos-pkg # Name of the artifact
+          path: ${{ env.SLACK_PKG_PATH }} # Path to the created PKG installer
           retention-days: 7 # How long to keep the artifact
 
       - name: Upload Intune info file as artifact
         # Upload the text file containing Bundle ID and Version as a separate artifact.
         uses: actions/upload-artifact@v4
         with:
-          name: slack-intune-info # Name of the artifact
+          name: slack-macos-intune-info # Name of the artifact
           path: ${{ steps.extract-info.outputs.INFO_FILE }} # Path to the info text file
           retention-days: 7 # How long to keep the artifact
