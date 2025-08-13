@@ -100,8 +100,7 @@ jobs:
           sudo rm -rf "$PKG_EXPAND_DIR" || true # Use || true to prevent failure if it doesn't exist
           
           echo "Expanding PKG to: $PKG_EXPAND_DIR"
-          mkdir -p "$PKG_EXPAND_DIR"
-          # Expand the downloaded .pkg file
+          # Expand the downloaded .pkg file. pkgutil will create the directory if it doesn't exist.
           pkgutil --expand "${{ env.EDGE_INSTALLER_PATH }}" "$PKG_EXPAND_DIR" || { echo "::error ::Failed to expand PKG."; exit 1; }
 
           # Find the Payload file within the expanded package structure
