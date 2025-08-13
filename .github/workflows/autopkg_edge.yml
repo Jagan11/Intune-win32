@@ -95,6 +95,10 @@ jobs:
           PKG_EXPAND_DIR="/private/tmp/EdgePkgExpand_$(uuidgen)"
           APP_EXTRACT_DIR="/private/tmp/EdgeAppExtract_$(uuidgen)"
           
+          # Pre-emptively clean the expansion directory before use
+          echo "Cleaning any existing PKG expansion directory: $PKG_EXPAND_DIR"
+          sudo rm -rf "$PKG_EXPAND_DIR" || true # Use || true to prevent failure if it doesn't exist
+          
           echo "Expanding PKG to: $PKG_EXPAND_DIR"
           mkdir -p "$PKG_EXPAND_DIR"
           # Expand the downloaded .pkg file
