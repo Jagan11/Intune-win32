@@ -1,16 +1,12 @@
-name: Build Visual Studio Code Package bundle - test
-
+name: Build Visual Studio Code Package
 on:
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: macos-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
-
       - name: Show current working directory and recipes folder for debug
         run: |
           echo "Current working directory:"
@@ -19,115 +15,95 @@ jobs:
           ls -la
           echo "Recipes folder contents:"
           ls -la ./recipes || true # Add || true to prevent failure if folder is empty or not found
-
       - name: Clean AutoPkg cached recipe repositories
         run: |
           echo "Removing old AutoPkg recipe caches..."
           rm -rf ~/Library/AutoPkg/RecipeRepos/* || true # Use || true to prevent failure if directory doesn't exist
           echo "Cache cleanup done."
-
       - name: Download and install AutoPkg
         run: |
           echo "Downloading AutoPkg installer..."
           curl -L -o autopkg.pkg https://github.com/autopkg/autopkg/releases/download/v2.7.5/AutoPkg-2.7.5.pkg
-
           if [ ! -f autopkg.pkg ]; then
             echo "Error: AutoPkg installer package missing!"
             exit 1
           fi
-
           filesize=$(stat -f%z autopkg.pkg)
           echo "Installer package size: $filesize bytes"
-
           if [ "$filesize" -lt 100000 ]; then
             echo "Error: Installer package is suspiciously small; aborting."
             exit 1
           fi
-
           echo "Installing AutoPkg..."
           sudo installer -pkg autopkg.pkg -target /
           echo "AutoPkg version:"
           autopkg version
-
       - name: Add AutoPkg recipe repositories
         run: |
           echo "Adding official AutoPkg recipes repo..."
           autopkg repo-add https://github.com/autopkg/recipes.git
-
-          # AutoPkg typically finds recipes in the current working directory and its subdirectories.
-          # Explicitly adding local recipes as a 'repo' is often not necessary unless it's a Git repo.
-          # If your local recipes directory (./recipes) needs to be in the search path and isn't a Git repo,
-          # you can configure AutoPkg's RECIPE_SEARCH_DIRS preference. However, for simple setups
-          # with recipes directly in the repo, the default search might suffice.
-          # If you have custom processors, ensure AUTO_PKG_PROCESSOR_PATHS is set correctly.
-
           echo "Listing all recipes to confirm..."
           autopkg list-recipes
-
       - name: Set environment variable for custom processors (if any)
         run: |
           echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
-
-      # Munki recipe step is omitted for now since MUNKI_REPO is not configured.
-
       - name: Run VisualStudioCode.download.recipe with verbose output
         run: autopkg run VisualStudioCode.download.recipe --verbose
-
       - name: Debug - List all files in AutoPkg Cache Directory
         run: |
-          # Directly use the standard AutoPkg Cache Directory path
           RECIPE_CACHE_DIR="$HOME/Library/AutoPkg/Cache"
           
           if [ -z "$RECIPE_CACHE_DIR" ]; then
             echo "Error: AutoPkg CacheDir is empty or could not be determined."
             exit 1
           fi
-
           echo "AutoPkg Cache Directory: $RECIPE_CACHE_DIR"
           
           if [ ! -d "$RECIPE_CACHE_DIR" ]; then
             echo "Error: AutoPkg Cache Directory does not exist: $RECIPE_CACHE_DIR"
           fi
-
           echo "Listing directory contents (might be empty if recipe just ran):"
           ls -la "$RECIPE_CACHE_DIR" || true
           echo "Listing all files recursively:"
           find "$RECIPE_CACHE_DIR" -type f || true
-
       - name: Find downloaded VSCode.app artifact
         id: find-vscode-app
         run: |
           RECIPE_CACHE_DIR="$HOME/Library/AutoPkg/Cache"
           
           if [ -z "$RECIPE_CACHE_DIR" ]; then
-            echo "Error: AutoPkg CacheDir is empty for artifact search."
+            echo "Error: AutoPkg CacheDir is empty for artifact search. AutoPkg might not be fully configured or initialized."
             exit 1
           fi
-
           if [ ! -d "$RECIPE_CACHE_DIR" ]; then
             echo "Error: AutoPkg Cache Directory does not exist for artifact search: $RECIPE_CACHE_DIR"
             exit 1
           fi
-
-          # Look for 'Visual Studio Code.app' specifically, as it's the unarchived application bundle.
+          # Look for 'Visual Studio Code.app' directly as it's the unarchived application bundle.
           VSCODE_APP_PATH=$(find "$RECIPE_CACHE_DIR" -type d -name "Visual Studio Code.app" | head -n 1)
-
+          
           if [ -z "$VSCODE_APP_PATH" ]; then
-            echo "::error ::Visual Studio Code.app not found in AutoPkg cache directory."
+            echo "::error ::Visual Studio Code.app not found in cache directory."
+            # Also list cache directory contents for debugging if no artifact is found
             echo "Contents of $RECIPE_CACHE_DIR for debugging:"
             ls -la "$RECIPE_CACHE_DIR"
             find "$RECIPE_CACHE_DIR" -type f
             exit 1
           fi
-
           echo "Found Visual Studio Code.app at: $VSCODE_APP_PATH"
-          echo "VSCODE_APP_PATH=$VSCODE_APP_PATH" >> $GITHUB_ENV
+          echo "VSCODE_APP_PATH=$VSCODE_APP_PATH" >> $GITHUB_ENV # Set as env var for consistency
 
       - name: Extract Bundle ID and Version for Intune
-        id: extract-info
+        id: extract-info # Assign an ID to this step to reference its outputs later
         # This step will use PlistBuddy to extract the necessary information
         # and save it to a file, which will then be uploaded as a separate artifact.
         run: |
+          # Ensure VSCODE_APP_PATH is available from environment (set by previous step)
+          if [ -z "${{ env.VSCODE_APP_PATH }}" ]; then
+            echo "::error ::VSCODE_APP_PATH environment variable is missing for Info.plist extraction."
+            exit 1
+          fi
+
           INFO_PLIST_PATH="${{ env.VSCODE_APP_PATH }}/Contents/Info.plist"
           
           if [ ! -f "$INFO_PLIST_PATH" ]; then
@@ -141,34 +117,32 @@ jobs:
           echo "Extracted Bundle ID: $BUNDLE_ID"
           echo "Extracted App Version: $APP_VERSION"
 
-          # Create a file with the Intune relevant information
-          INFO_FILE="vscode_intune_info.txt"
-          echo "--- Visual Studio Code Intune Details ---" > "$INFO_FILE"
+          # Create a file with the Intune relevant information.
+          INFO_FILE="vscode_intune_info_macos.txt"
+          echo "--- Visual Studio Code (macOS) Intune Details ---" > "$INFO_FILE"
           echo "Bundle ID (for Detection Rules): $BUNDLE_ID" >> "$INFO_FILE"
           echo "Version (for Display/Detection): $APP_VERSION" >> "$INFO_FILE"
           echo "" >> "$INFO_FILE"
-          echo "Typical Install Command: sudo installer -pkg <package_name>.pkg -target /" >> "$INFO_FILE"
-          echo "Typical Uninstall Command: /bin/rm -rf '/Applications/Visual Studio Code.app'" >> "$INFO_FILE" # Adjust if VSCode.app is in user's home
-          echo "-----------------------------------------" >> "$INFO_FILE"
+          echo "Install Command: /usr/sbin/installer -pkg <package_name>.pkg -target /" >> "$INFO_FILE" # Assuming it will be pkg'd later
+          echo "Uninstall Command: /bin/rm -rf '/Applications/Visual Studio Code.app'" >> "$INFO_FILE"
+          echo "-------------------------------------------------" >> "$INFO_FILE"
 
           echo "Intune info saved to $INFO_FILE"
-          ls -la "$INFO_FILE" # Show the created file
+          ls -la "$INFO_FILE" # Show the created file in logs
 
-          # Make these values available as outputs for the job (optional, but good for visibility)
-          echo "BUNDLE_ID=$BUNDLE_ID" >> $GITHUB_OUTPUT
-          echo "APP_VERSION=$APP_VERSION" >> $GITHUB_OUTPUT
-          echo "INFO_FILE=$INFO_FILE" >> $GITHUB_OUTPUT # Make the info file path available for artifact upload
+          # Make the path to the info file available as a step output for artifact upload.
+          echo "INFO_FILE=$INFO_FILE" >> $GITHUB_OUTPUT
 
       - name: Upload the VSCode.app bundle as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vscode-app-bundle
-          path: ${{ env.VSCODE_APP_PATH }}
-          retention-days: 7
+          name: vscode-app-bundle # Renamed artifact for clarity
+          path: ${{ env.VSCODE_APP_PATH }} # Path to the Slack.app bundle
+          retention-days: 7 # How long to keep the artifact
 
       - name: Upload Intune info file as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vscode-intune-info
-          path: ${{ steps.extract-info.outputs.INFO_FILE }}
-          retention-days: 7
+          name: vscode-macos-intune-info # Renamed artifact for clarity and consistency
+          path: ${{ steps.extract-info.outputs.INFO_FILE }} # Path to the info text file
+          retention-days: 7 # How long to keep the artifact
