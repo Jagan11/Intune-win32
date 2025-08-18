@@ -1,102 +1,205 @@
-name: Package macOS Apps as IntuneMac
+name: Build GitHub Desktop Package for macOS
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Allows manual triggering of the workflow
 
 jobs:
-  package-apps:
-    runs-on: macos-latest
+  github_desktop_macos:
+    runs-on: macos-latest # This job runs on a macOS runner
+
     steps:
-      - name: Setup directories
-        run: |
-          mkdir -p input output tools
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      # ---------------------------
-      # 1. Download and Package VSCode
-      # ---------------------------
-      - name: Download VSCode
+      - name: Show current working directory and recipes folder for debug
+        # Display current directory and contents of the 'recipes' folder for debugging purposes.
         run: |
-          curl -L "https://update.code.visualstudio.com/latest/darwin/stable" -o "input/VSCode.zip"
-          unzip -q input/VSCode.zip -d input/
-          pkgbuild --install-location /Applications --component "input/Visual Studio Code.app" "input/VSCode.pkg"
+          echo "Current working directory:"
+          pwd
+          echo "Repository root contents:"
+          ls -la
+          echo "Recipes folder contents:"
+          ls -la ./recipes || true # Add || true to prevent failure if folder is empty or not found
 
-      # ---------------------------
-      # 2. Download and Package GitHub Desktop
-      # ---------------------------
-      - name: Download GitHub Desktop
+      - name: Clean AutoPkg cached recipe repositories
+        # Remove old AutoPkg recipe caches to ensure a clean slate and avoid conflicts.
         run: |
-          curl -L "https://central.github.com/deployments/desktop/desktop/latest/darwin" -o "input/GitHubDesktop.zip"
-          unzip -q input/GitHubDesktop.zip -d input/
-          pkgbuild --install-location /Applications --component "input/GitHub Desktop.app" "input/GitHubDesktop.pkg"
+          echo "Removing old AutoPkg recipe caches..."
+          rm -rf ~/Library/AutoPkg/RecipeRepos/* || true # Use || true to prevent failure if directory doesn't exist
+          echo "Cache cleanup done."
 
-      # ---------------------------
-      # 3. Download and Package Chrome
-      # ---------------------------
-      - name: Download Chrome
+      - name: Download and install AutoPkg
+        # Download the AutoPkg installer package.
         run: |
-          curl -L "https://dl.google.com/chrome/mac/stable/GGRO/googlechrome.dmg" -o "input/Chrome.dmg"
-          hdiutil attach input/Chrome.dmg -nobrowse -quiet
-          cp -r "/Volumes/Google Chrome/Google Chrome.app" input/
-          hdiutil detach "/Volumes/Google Chrome" -quiet
-          pkgbuild --install-location /Applications --component "input/Google Chrome.app" "input/Chrome.pkg"
+          echo "Downloading AutoPkg installer..."
+          curl -L -o autopkg.pkg https://github.com/autopkg/autopkg/releases/download/v2.7.5/AutoPkg-2.7.5.pkg
 
-      # ---------------------------
-      # 4. Download and Package Microsoft Edge
-      # ---------------------------
-      - name: Download Microsoft Edge
+          if [ ! -f autopkg.pkg ]; then
+            echo "Error: AutoPkg installer package missing!"
+            exit 1
+          fi
+
+          # Verify the downloaded file size to ensure it's not a partial download or error page.
+          filesize=$(stat -f%z autopkg.pkg)
+          echo "Installer package size: $filesize bytes"
+
+          if [ "$filesize" -lt 100000 ]; then # Minimum expected size for a valid installer
+            echo "Error: Installer package is suspiciously small; aborting."
+            exit 1
+          fi
+
+          # Install AutoPkg silently.
+          echo "Installing AutoPkg..."
+          sudo installer -pkg autopkg.pkg -target /
+          echo "AutoPkg version:"
+          autopkg version
+
+      - name: Add AutoPkg recipe repositories
+        # Add the official AutoPkg recipes repository, which contains the GitHubDesktop.download.recipe.
         run: |
-          curl -L "https://go.microsoft.com/fwlink/?linkid=2069148" -o "input/Edge.pkg"
+          echo "Adding official AutoPkg recipes repo..."
+          autopkg repo-add https://github.com/autopkg/recipes.git
+          echo "Listing all recipes to confirm..."
+          autopkg list-recipes
 
-      # ---------------------------
-      # 5. Clone Intune App Wrapping Tool for macOS
-      # ---------------------------
-      - name: Clone Intune App Wrapping Tool
+      - name: Set environment variable for custom processors (if any)
+        # Set an environment variable if you have custom processors in your 'processors' folder.
         run: |
-          git clone https://github.com/msintuneappsdk/intune-app-wrapping-tool-macos.git tools/wrapper
-          chmod +x tools/wrapper/intune-app-wrapping-tool-macos
+          echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
 
-      # ---------------------------
-      # 6. Wrap all .pkg installers into .intunemac format
-      ---------------------------
-      - name: Wrap VSCode
+      - name: Run GitHubDesktop.download.recipe and Extract Path
+        id: run_and_extract_path # ID to reference outputs if needed
         run: |
-          ./tools/wrapper/intune-app-wrapping-tool-macos -i input/VSCode.pkg -o output/VSCode.intunemac
+          # Execute the GitHubDesktop.download.recipe and capture its entire verbose output
+          # GitHub Desktop is typically distributed as a .zip file containing the .app bundle.
+          AUTOPKG_OUTPUT=$(autopkg run GitHubDesktop.download.recipe --verbose 2>&1)
+          echo "$AUTOPKG_OUTPUT" # Print full output for debugging
 
-      - name: Wrap GitHub Desktop
+          # Extract the download path from the AutoPkg output more reliably.
+          # This now looks for "URLDownloader: Downloaded " and extracts the full path after it.
+          GH_DESKTOP_ZIP_PATH=$(echo "$AUTOPKG_OUTPUT" | grep 'URLDownloader: Downloaded ' | awk '{print $NF}' | head -n 1 | xargs)
+
+          if [ -z "$GH_DESKTOP_ZIP_PATH" ]; then
+            echo "::error ::Could not extract GitHub Desktop ZIP installer path from AutoPkg output."
+            echo "Full AutoPkg output for debugging:"
+            echo "$AUTOPKG_OUTPUT" # Re-print full output if extraction fails
+            exit 1
+          fi
+
+          echo "Found GitHub Desktop ZIP installer at: $GH_DESKTOP_ZIP_PATH"
+          echo "GH_DESKTOP_ZIP_PATH=$GH_DESKTOP_ZIP_PATH" >> $GITHUB_ENV # Set as env var for subsequent steps
+
+      - name: Extract GitHub Desktop.app from ZIP
+        id: extract_app
         run: |
-          ./tools/wrapper/intune-app-wrapping-tool-macos -i input/GitHubDesktop.pkg -o output/GitHubDesktop.intunemac
+          # Define a temporary directory for extracting the app
+          APP_EXTRACT_DIR="/private/tmp/GitHubDesktopAppExtract_$(uuidgen)"
+          echo "Extracting GitHub Desktop.app to: $APP_EXTRACT_DIR"
+          mkdir -p "$APP_EXTRACT_DIR"
+          
+          # Unzip the downloaded archive into the temporary directory
+          unzip -q "${{ env.GH_DESKTOP_ZIP_PATH }}" -d "$APP_EXTRACT_DIR" || { echo "::error ::Failed to unzip GitHub Desktop archive."; exit 1; }
 
-      - name: Wrap Chrome
+          # Find the GitHub Desktop.app bundle within the extracted contents
+          # It's usually directly inside the unzipped folder
+          GH_DESKTOP_APP_PATH=$(find "$APP_EXTRACT_DIR" -type d -name "GitHub Desktop.app" | head -n 1)
+
+          if [ -z "$GH_DESKTOP_APP_PATH" ]; then
+            echo "::error ::GitHub Desktop.app not found in extracted ZIP at $APP_EXTRACT_DIR."
+            ls -laR "$APP_EXTRACT_DIR" || true # Debug contents of extracted dir
+            exit 1
+          fi
+          echo "Found GitHub Desktop.app at: $GH_DESKTOP_APP_PATH"
+          
+          # Set the path to the extracted app as an environment variable for subsequent steps
+          echo "GH_DESKTOP_APP_PATH=$GH_DESKTOP_APP_PATH" >> $GITHUB_ENV
+
+      - name: Create PKG from GitHub Desktop.app
+        id: create_pkg
         run: |
-          ./tools/wrapper/intune-app-wrapping-tool-macos -i input/Chrome.pkg -o output/Chrome.intunemac
+          # Define the output directory for the PKG
+          RECIPE_CACHE_DIR="$HOME/Library/AutoPkg/Cache" # Re-using AutoPkg cache for output consistency
+          PKG_OUTPUT_DIR="$RECIPE_CACHE_DIR/com.github.autopkg.download.GitHubDesktop/pkg_output"
+          mkdir -p "$PKG_OUTPUT_DIR"
+          
+          # Get the app's version for the PKG filename
+          APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${{ env.GH_DESKTOP_APP_PATH }}/Contents/Info.plist")
+          PKG_NAME="GitHubDesktop-$APP_VERSION.pkg"
+          PKG_PATH="$PKG_OUTPUT_DIR/$PKG_NAME"
 
-      - name: Wrap Edge
+          echo "Creating PKG from GitHub Desktop.app..."
+          # Use pkgbuild to create a component package from the .app bundle
+          # --component: path to the component to package (the .app bundle)
+          # --install-location: where the component will be installed on the target (usually /Applications)
+          # --version: version of the package
+          # --identifier: a unique identifier for the package (e.g., com.yourorg.pkg.githubdesktop)
+          pkgbuild --component "${{ env.GH_DESKTOP_APP_PATH }}" \
+                   --install-location "/Applications" \
+                   --version "$APP_VERSION" \
+                   --identifier "com.github.pkg.githubdesktop" \
+                   "$PKG_PATH" || { echo "::error ::Failed to create PKG from GitHub Desktop.app."; exit 1; }
+
+          echo "PKG created successfully at: $PKG_PATH"
+          ls -la "$PKG_OUTPUT_DIR" # List contents to confirm PKG is there
+          
+          # Set the path to the created PKG as an environment variable for artifact upload
+          echo "GH_DESKTOP_PKG_PATH=$PKG_PATH" >> $GITHUB_ENV
+          echo "PKG_NAME=$PKG_NAME" >> $GITHUB_OUTPUT # Export PKG name for artifact naming
+
+      - name: Extract Bundle ID and Version for Intune
+        id: extract_info
         run: |
-          ./tools/wrapper/intune-app-wrapping-tool-macos -i input/Edge.pkg -o output/Edge.intunemac
+          # Ensure GH_DESKTOP_APP_PATH is available from environment (set by extract_app step)
+          if [ -z "${{ env.GH_DESKTOP_APP_PATH }}" ]; then
+            echo "::error ::GH_DESKTOP_APP_PATH environment variable is missing for Info.plist extraction."
+            exit 1
+          fi
 
-      # ---------------------------
-      # 7. Upload all wrapped apps as artifacts
-      # ---------------------------
-      - name: Upload VSCode.intunemac
+          INFO_PLIST_PATH="${{ env.GH_DESKTOP_APP_PATH }}/Contents/Info.plist"
+          
+          if [ ! -f "$INFO_PLIST_PATH" ]; then
+            echo "::error ::Info.plist not found for GitHub Desktop.app at $INFO_PLIST_PATH"
+            exit 1
+          fi
+
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO_PLIST_PATH")
+          APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO_PLIST_PATH")
+
+          echo "Extracted Bundle ID: $BUNDLE_ID"
+          echo "Extracted App Version: $APP_VERSION"
+
+          # Create a file with the Intune relevant information.
+          INFO_FILE="github_desktop_intune_info_macos.txt"
+          echo "--- GitHub Desktop (macOS) Intune Details ---" > "$INFO_FILE"
+          echo "Bundle ID (for Detection Rules): $BUNDLE_ID" >> "$INFO_FILE"
+          echo "Version (for Display/Detection): $APP_VERSION" >> "$INFO_FILE"
+          echo "" >> "$INFO_FILE"
+          echo "Install Command: sudo installer -pkg ${{ steps.create_pkg.outputs.PKG_NAME }} -target /" >> "$INFO_FILE"
+          echo "Uninstall Command: /bin/rm -rf '/Applications/GitHub Desktop.app'" >> "$INFO_FILE"
+          echo "---------------------------------------------" >> "$INFO_FILE"
+
+          echo "Intune info saved to $INFO_FILE"
+          ls -la "$INFO_FILE" # Show the created file in logs
+
+          # Clean up temporary app extraction directory
+          echo "Cleaning up temporary app extraction directory: ${{ steps.extract_app.outputs.APP_EXTRACT_DIR }}"
+          sudo rm -rf "${{ steps.extract_app.outputs.APP_EXTRACT_DIR }}" || true
+
+          # Make the path to the info file available as a step output for artifact upload.
+          echo "INFO_FILE=$INFO_FILE" >> $GITHUB_OUTPUT
+
+      - name: Upload the GitHub Desktop PKG as artifact
+        # Upload the created PKG installer.
         uses: actions/upload-artifact@v4
         with:
-          name: vscode-intunemac
-          path: output/VSCode.intunemac
+          name: github-desktop-macos-pkg # Name of the artifact
+          path: ${{ env.GH_DESKTOP_PKG_PATH }} # Path to the created PKG installer
+          retention-days: 7 # How long to keep the artifact
 
-      - name: Upload GitHubDesktop.intunemac
+      - name: Upload Intune info file for macOS GitHub Desktop as artifact
+        # Upload the text file containing Bundle ID and Version as a separate artifact.
         uses: actions/upload-artifact@v4
         with:
-          name: githubdesktop-intunemac
-          path: output/GitHubDesktop.intunemac
-
-      - name: Upload Chrome.intunemac
-        uses: actions/upload-artifact@v4
-        with:
-          name: chrome-intunemac
-          path: output/Chrome.intunemac
-
-      - name: Upload Edge.intunemac
-        uses: actions/upload-artifact@v4
-        with:
-          name: edge-intunemac
-          path: output/Edge.intunemac
+          name: github-desktop-macos-intune-info # Name of the artifact
+          path: ${{ steps.extract_info.outputs.INFO_FILE }} # Path to the info text file
+          retention-days: 7 # How long to keep the artifact
