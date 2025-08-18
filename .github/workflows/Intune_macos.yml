@@ -18,7 +18,7 @@ jobs:
           echo "Repository root contents:"
           ls -la
           echo "Recipes folder contents:"
-          ls -la ./recipes || true # Add || true to prevent failure if folder is empty or not found
+          ls -la ./recipes || true # Prevent failure if folder empty or missing
 
       - name: Clean AutoPkg cached recipe repositories
         run: |
@@ -66,7 +66,7 @@ jobs:
           AUTOPKG_OUTPUT=$(autopkg run GitHubDesktop.download.recipe --verbose 2>&1)
           echo "$AUTOPKG_OUTPUT"
 
-          GH_DESKTOP_ZIP_PATH=$(echo "$AUTOPKG_OUTPUT" | grep 'URLDownloader: Downloaded ' | awk '{print $NF}' | head -n 1 | xargs)
+          GH_DESKTOP_ZIP_PATH=$(echo "$AUTOPKG_OUTPUT" | grep -E 'URLDownloader: (Downloaded|Using existing)' | awk '{print $NF}' | head -n 1 | xargs)
 
           if [ -z "$GH_DESKTOP_ZIP_PATH" ]; then
             echo "::error ::Could not extract GitHub Desktop ZIP installer path from AutoPkg output."
@@ -104,3 +104,77 @@ jobs:
           DEVELOPER_ID_INSTALLER_CERT: ${{ secrets.DEVELOPER_ID_INSTALLER_CERT_NAME }}
         run: |
           RECIPE_CACHE_DIR="$HOME/Library/AutoPkg/Cache"
+          PKG_OUTPUT_DIR="$RECIPE_CACHE_DIR/com.github.autopkg.download.GitHubDesktop/pkg_output"
+          mkdir -p "$PKG_OUTPUT_DIR"
+
+          APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${{ env.GH_DESKTOP_APP_PATH }}/Contents/Info.plist")
+          PKG_NAME="GitHubDesktop-$APP_VERSION.pkg"
+          PKG_PATH="$PKG_OUTPUT_DIR/$PKG_NAME"
+
+          echo "Creating PKG from GitHub Desktop.app..."
+          pkgbuild --component "${{ env.GH_DESKTOP_APP_PATH }}" \
+                   --install-location "/Applications" \
+                   --version "$APP_VERSION" \
+                   --identifier "com.github.pkg.githubdesktop" \
+                   "$PKG_PATH" || { echo "::error ::Failed to create PKG from GitHub Desktop.app."; exit 1; }
+
+          echo "Signing PKG with Developer ID Installer certificate: $DEVELOPER_ID_INSTALLER_CERT"
+          productsign --sign "$DEVELOPER_ID_INSTALLER_CERT" "$PKG_PATH" "${PKG_PATH}.signed.pkg" || { echo "::error ::Failed to sign PKG."; exit 1; }
+
+          mv "${PKG_PATH}.signed.pkg" "$PKG_PATH"
+          echo "Signed PKG created at: $PKG_PATH"
+          ls -la "$PKG_OUTPUT_DIR"
+
+          echo "GH_DESKTOP_PKG_PATH=$PKG_PATH" >> $GITHUB_ENV
+          echo "PKG_NAME=$PKG_NAME" >> $GITHUB_OUTPUT
+
+      - name: Extract Bundle ID and Version for Intune
+        id: extract_info
+        run: |
+          if [ -z "${{ env.GH_DESKTOP_APP_PATH }}" ]; then
+            echo "::error ::GH_DESKTOP_APP_PATH environment variable missing."
+            exit 1
+          fi
+
+          INFO_PLIST_PATH="${{ env.GH_DESKTOP_APP_PATH }}/Contents/Info.plist"
+          if [ ! -f "$INFO_PLIST_PATH" ]; then
+            echo "::error ::Info.plist not found."
+            exit 1
+          fi
+
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO_PLIST_PATH")
+          APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO_PLIST_PATH")
+
+          echo "Extracted Bundle ID: $BUNDLE_ID"
+          echo "Extracted App Version: $APP_VERSION"
+
+          INFO_FILE="github_desktop_intune_info_macos.txt"
+          echo "--- GitHub Desktop (macOS) Intune Details ---" > "$INFO_FILE"
+          echo "Bundle ID (for Detection Rules): $BUNDLE_ID" >> "$INFO_FILE"
+          echo "Version (for Display/Detection): $APP_VERSION" >> "$INFO_FILE"
+          echo "" >> "$INFO_FILE"
+          echo "Install Command: sudo installer -pkg ${{ steps.create_pkg.outputs.PKG_NAME }} -target /" >> "$INFO_FILE"
+          echo "Uninstall Command: /bin/rm -rf '/Applications/GitHub Desktop.app'" >> "$INFO_FILE"
+          echo "---------------------------------------------" >> "$INFO_FILE"
+
+          echo "Intune info saved to $INFO_FILE"
+          ls -la "$INFO_FILE"
+
+          echo "INFO_FILE=$INFO_FILE" >> $GITHUB_OUTPUT
+
+          echo "Cleaning up temporary app extraction directory: ${{ env.APP_EXTRACT_DIR }}"
+          sudo rm -rf "${{ env.APP_EXTRACT_DIR }}" || true
+
+      - name: Upload the GitHub Desktop PKG as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-desktop-macos-pkg
+          path: ${{ env.GH_DESKTOP_PKG_PATH }}
+          retention-days: 7
+
+      - name: Upload Intune info file artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-desktop-macos-intune-info
+          path: ${{ steps.extract_info.outputs.INFO_FILE }}
+          retention-days: 7
