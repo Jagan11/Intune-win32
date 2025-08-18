@@ -62,7 +62,8 @@ jobs:
         run: |
           $installerFileName = "VSCodeSetup.exe"
           $originalOutputPath = ".\output\VSCodeSetup.intunewin"
-          $finalFileName = "VSCode-win-x64-$env:VSCODE_VERSION.intunewin"
+          # Ensure VSCODE_VERSION is trimmed again when used in the filename
+          $finalFileName = "VSCode-win-x64-$($env:VSCODE_VERSION.Trim()).intunewin"
           $finalOutputPath = ".\output\$finalFileName"
 
           .\IntuneWinAppUtil.exe -c ".\input" -s "$installerFileName" -o ".\output" -q
@@ -89,7 +90,9 @@ jobs:
           # This assumes the artifact is immediately available for download within the same run.
           # For cross-job verification, a separate job with actions/download-artifact would be needed.
           
-          $intunewinFile = "output\VSCode-win-x64-$env:VSCODE_VERSION.intunewin"
+          # Ensure VSCODE_VERSION is trimmed again when used in path construction for robustness
+          $trimmedVersion = $env:VSCODE_VERSION.Trim()
+          $intunewinFile = "output\VSCode-win-x64-$trimmedVersion.intunewin"
           $extractedDir = "extracted_vscode_intunewin"
           $expectedInstaller = "VSCodeSetup.exe"
           $tempZipFile = "$intunewinFile.zip"
