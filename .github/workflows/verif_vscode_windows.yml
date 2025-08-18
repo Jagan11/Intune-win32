@@ -1,0 +1,126 @@
+name: Package Apps as IntuneWin vscode windo release
+
+on:
+  workflow_dispatch: # Allows manual triggering of the workflow
+
+jobs:
+  vscode:
+    runs-on: windows-latest # This job runs on a Windows runner
+    steps:
+      - name: Create directories
+        run: |
+          New-Item -Path input -ItemType Directory -Force
+          New-Item -Path output -ItemType Directory -Force
+
+      - name: Download latest VSCode x64 User Installer
+        shell: pwsh
+        run: |
+          # This URL specifically targets the 'stable' channel for the latest x64 user installer.
+          $downloadUrl = "https://update.code.visualstudio.com/latest/win32-x64-user/stable"
+          $outputPath = "input\VSCodeSetup.exe" # Define the output path for clarity
+
+          Write-Host "Downloading VSCode from: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $outputPath -ErrorAction Stop
+
+          # --- Start File Checks for Downloaded Installer ---
+          if (-not (Test-Path $outputPath)) {
+              Write-Error "Error: VSCode installer package '$outputPath' missing after download!"
+              exit 1
+          }
+          $fileSize = (Get-Item $outputPath).Length
+          Write-Host "Downloaded VSCode installer size: $fileSize bytes"
+          if ($fileSize -eq 0) {
+              Write-Error "Error: VSCode installer package '$outputPath' is empty after download!"
+              exit 1
+          }
+          # --- End File Checks ---
+
+      - name: Get VSCode installer version and set as environment variable
+        shell: pwsh
+        run: |
+          $installerPath = "input\VSCodeSetup.exe"
+          if (-not (Test-Path $installerPath)) {
+              Write-Error "VSCodeSetup.exe not found at $installerPath for version check."
+              exit 1
+          }
+          $version = (Get-Item $installerPath).VersionInfo.ProductVersion
+          Write-Host "VSCode installer version: $version"
+          echo "VSCODE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Download Microsoft Win32 Content Prep Tool
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+          if (-not (Test-Path "IntuneWinAppUtil.exe")) {
+              Write-Error "IntuneWinAppUtil.exe not downloaded."
+              exit 1
+          }
+
+      - name: Package VSCode using IntuneWinAppUtil
+        shell: pwsh
+        run: |
+          $installerFileName = "VSCodeSetup.exe"
+          $originalOutputPath = ".\output\VSCodeSetup.intunewin"
+          $finalFileName = "VSCode-win-x64-$env:VSCODE_VERSION.intunewin"
+          $finalOutputPath = ".\output\$finalFileName"
+
+          .\IntuneWinAppUtil.exe -c ".\input" -s "$installerFileName" -o ".\output" -q
+
+          if (-not (Test-Path $originalOutputPath)) {
+              Write-Error "Failed to create IntuneWin package at $originalOutputPath."
+              exit 1
+          }
+          Rename-Item -Path $originalOutputPath -NewName $finalFileName -Force
+          Write-Host "Renamed $originalOutputPath to $finalFileName"
+          echo "INTUNEWIN_PACKAGE_PATH=$finalOutputPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Upload VSCode package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-intunewin
+          path: output/*.intunewin
+
+      - name: Verify .intunewin Package Integrity (VSCode)
+        shell: pwsh
+        run: |
+          # Download the artifact that was just uploaded
+          Write-Host "Attempting to download and verify vscode-intunewin artifact..."
+          # This assumes the artifact is immediately available for download within the same run.
+          # For cross-job verification, a separate job with actions/download-artifact would be needed.
+          
+          $intunewinFile = "output\VSCode-win-x64-$env:VSCODE_VERSION.intunewin"
+          $extractedDir = "extracted_vscode_intunewin"
+          $expectedInstaller = "VSCodeSetup.exe"
+          $tempZipFile = "$intunewinFile.zip"
+
+          if (-not (Test-Path $intunewinFile)) {
+              Write-Error "Error: .intunewin file '$intunewinFile' not found for verification!"
+              exit 1
+          }
+
+          # Rename .intunewin to .zip to allow standard extraction
+          Write-Host "Renaming '$intunewinFile' to '$tempZipFile' for extraction..."
+          Rename-Item -Path $intunewinFile -NewName $tempZipFile -Force
+
+          # Extract the contents
+          Write-Host "Extracting '$tempZipFile'..."
+          Expand-Archive -Path $tempZipFile -DestinationPath $extractedDir -Force
+
+          # Verify the 'Contents' folder exists
+          $contentsFolder = Join-Path $extractedDir "Contents"
+          if (-not (Test-Path $contentsFolder -PathType Container)) {
+              Write-Error "Error: 'Contents' folder not found inside the extracted .intunewin package!"
+              exit 1
+          }
+
+          # Verify the expected installer exists inside 'Contents'
+          $foundInstallerPath = Join-Path $contentsFolder $expectedInstaller
+          if (-not (Test-Path $foundInstallerPath)) {
+              Write-Error "Error: Expected installer '$expectedInstaller' not found inside '$contentsFolder'!"
+              # List contents for debugging
+              Write-Host "Contents of '$contentsFolder':"
+              Get-ChildItem $contentsFolder | Select-Object Name, Length, LastWriteTime | Format-Table
+              exit 1
+          }
+
+          Write-Host "Successfully verified .intunewin package integrity for VSCode. Installer '$expectedInstaller' found."
