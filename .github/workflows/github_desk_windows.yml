@@ -16,17 +16,36 @@ jobs:
       - name: Download latest GitHub Desktop for Windows installer
         shell: pwsh
         run: |
-          # This URL typically downloads the latest stable GitHub Desktop Windows installer.
-          $downloadUrl = "https://central.github.com/api/deployments/desktop/desktop/latest/win32"
+          # Fetch the latest stable release from the official GitHub Desktop GitHub releases API.
+          $apiUrl = "https://api.github.com/repos/desktop/desktop/releases/latest"
+          Write-Host "Fetching latest release info from: $apiUrl"
+          $response = Invoke-RestMethod -Uri $apiUrl -ErrorAction Stop
+          
+          # Find the appropriate 64-bit Windows installer (.exe, non-portable)
+          $asset = $response.assets | Where-Object { $_.name -like "*Setup*.exe" -and $_.name -notlike "*portable*" -and $_.name -notlike "*ia32*" } | Select-Object -First 1
+
+          if ($null -eq $asset) {
+              Write-Error "Could not find a suitable 64-bit GitHub Desktop installer asset from the API response."
+              Write-Host "Available assets:"
+              $response.assets | ForEach-Object { Write-Host ("  " + $_.name) }
+              exit 1
+          }
+          
+          $downloadUrl = $asset.browser_download_url
+          $installerFileName = $asset.name # Use the actual filename from the asset
+          
           Write-Host "Downloading GitHub Desktop from: $downloadUrl"
-          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\GitHubDesktopSetup.exe"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\$installerFileName" -ErrorAction Stop
+          
+          Write-Host "Downloaded installer: $installerFileName"
+          echo "GH_DESKTOP_INSTALLER_FILENAME=$installerFileName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Get GitHub Desktop installer version and set as environment variable
         shell: pwsh
         run: |
-          $installerPath = "input\GitHubDesktopSetup.exe"
+          $installerPath = "input\$env:GH_DESKTOP_INSTALLER_FILENAME"
           if (-not (Test-Path $installerPath)) {
-              Write-Error "GitHubDesktopSetup.exe not found at $installerPath."
+              Write-Error "GitHubDesktop installer not found at $installerPath."
               exit 1
           }
           # GitHub Desktop's installer version can sometimes be different from the actual app version.
@@ -47,17 +66,17 @@ jobs:
       - name: Package GitHub Desktop using IntuneWinAppUtil
         shell: pwsh
         run: |
-          $installerFileName = "GitHubDesktopSetup.exe"
-          $originalOutputPath = ".\output\GitHubDesktopSetup.intunewin"
+          $installerFileName = "$env:GH_DESKTOP_INSTALLER_FILENAME"
+          $originalOutputPath = ".\output\$($installerFileName -replace '\.exe$', '.intunewin')" # Derive intunewin name from installer
           $finalFileName = "GitHubDesktop-win-x64-$env:GH_DESKTOP_VERSION.intunewin"
           $finalOutputPath = ".\output\$finalFileName"
 
           # Run the IntuneWinAppUtil to package the application.
           # -c: content folder (.\input)
-          # -s: setup file (GitHubDesktopSetup.exe)
+          # -s: setup file (GitHubDesktopSetup.exe or whatever the downloaded name is)
           # -o: output folder (.\output)
           # -q: quiet mode (no prompts)
-          .\IntuneWinAppUtil.exe -c ".\input" -s "$installerFileName" -o ".\output" -q
+          .\IntuneWinAppUtil.exe -c ".\input" -s "$installerFileName" -o ".\output" -q -ErrorAction Stop
 
           if (-not (Test-Path $originalOutputPath)) {
               Write-Error "Failed to create IntuneWin package at $originalOutputPath."
@@ -93,7 +112,6 @@ jobs:
           Install Command: GitHubDesktopSetup.exe /S
           # Note: GitHub Desktop's uninstallation is often managed via Squirrel.
           # The uninstall command below attempts to use the Squirrel uninstaller.
-          # Replace <USER_PROFILE> with %LOCALAPPDATA% if deploying per-user.
           # This command might need testing in your specific environment as Squirrel uninstallers can be tricky.
           Uninstall Command: "%LOCALAPPDATA%\GitHubDesktop\Update.exe" --uninstall
           # Alternative simple uninstall (if Squirrel doesn't work consistently or for cleanup):
