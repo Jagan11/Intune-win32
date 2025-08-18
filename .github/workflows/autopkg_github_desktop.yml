@@ -75,9 +75,9 @@ jobs:
           AUTOPKG_OUTPUT=$(autopkg run GitHubDesktop.download.recipe --verbose 2>&1)
           echo "$AUTOPKG_OUTPUT" # Print full output for debugging
 
-          # Extract the download path from the AutoPkg output.
-          # This pattern looks for "Download Path" followed by whitespace and then captures the actual path to the .zip.
-          GH_DESKTOP_ZIP_PATH=$(echo "$AUTOPKG_OUTPUT" | grep -A 2 "Download Path" | tail -n 1 | xargs)
+          # Extract the download path from the AutoPkg output using a precise grep -o regex.
+          # This captures lines that start with the known cache path and end with .zip.
+          GH_DESKTOP_ZIP_PATH=$(echo "$AUTOPKG_OUTPUT" | grep -o '/Users/runner/Library/AutoPkg/Cache/[^[:space:]]*\.zip' | head -n 1)
 
           if [ -z "$GH_DESKTOP_ZIP_PATH" ]; then
             echo "::error ::Could not extract GitHub Desktop ZIP installer path from AutoPkg output."
