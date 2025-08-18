@@ -1,0 +1,177 @@
+name: Build Visual Studio Code Package (macOS)
+
+on:
+  workflow_dispatch: # Allows manual triggering of the workflow
+
+jobs:
+  vscode_macos:
+    runs-on: macos-latest # This job runs on a macOS runner
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Show current working directory and recipes folder for debug
+        # Display current directory and contents of the 'recipes' folder for debugging purposes.
+        run: |
+          echo "Current working directory:"
+          pwd
+          echo "Repository root contents:"
+          ls -la
+          echo "Recipes folder contents:"
+          ls -la ./recipes || true # Add || true to prevent failure if folder is empty or not found
+
+      - name: Clean AutoPkg cached recipe repositories
+        # Remove old AutoPkg recipe caches to ensure a clean slate and avoid conflicts.
+        run: |
+          echo "Removing old AutoPkg recipe caches..."
+          rm -rf ~/Library/AutoPkg/RecipeRepos/* || true # Use || true to prevent failure if directory doesn't exist
+          echo "Cache cleanup done."
+
+      - name: Download and install AutoPkg
+        # Download the AutoPkg installer package.
+        run: |
+          echo "Downloading AutoPkg installer..."
+          curl -L -o autopkg.pkg https://github.com/autopkg/autopkg/releases/download/v2.7.5/AutoPkg-2.7.5.pkg
+
+          if [ ! -f autopkg.pkg ]; then
+            echo "Error: AutoPkg installer package missing!"
+            exit 1
+          fi
+
+          # Verify the downloaded file size to ensure it's not a partial download or error page.
+          filesize=$(stat -f%z autopkg.pkg)
+          echo "Installer package size: $filesize bytes"
+
+          if [ "$filesize" -lt 100000 ]; then # Minimum expected size for a valid installer
+            echo "Error: Installer package is suspiciously small; aborting."
+            exit 1
+          fi
+
+          # Install AutoPkg silently.
+          echo "Installing AutoPkg..."
+          sudo installer -pkg autopkg.pkg -target /
+          echo "AutoPkg version:"
+          autopkg version
+
+      - name: Add AutoPkg recipe repositories
+        # Add the official AutoPkg recipes repository, which contains the VisualStudioCode.download.recipe.
+        run: |
+          echo "Adding official AutoPkg recipes repo..."
+          autopkg repo-add https://github.com/autopkg/recipes.git
+          echo "Listing all recipes to confirm..."
+          autopkg list-recipes
+
+      - name: Set environment variable for custom processors (if any)
+        # Set an environment variable if you have custom processors in your 'processors' folder.
+        run: |
+          echo "AUTO_PKG_PROCESSOR_PATHS=$(pwd)/processors" >> $GITHUB_ENV
+
+      - name: Run VisualStudioCode.download.recipe and Extract Path
+        id: run_and_extract_path # ID to reference outputs if needed
+        run: |
+          # Execute the VisualStudioCode.download.recipe and capture its entire verbose output
+          # Visual Studio Code is typically distributed as a .zip file containing the .app bundle.
+          AUTOPKG_OUTPUT=$(autopkg run VisualStudioCode.download.recipe --verbose 2>&1)
+          echo "$AUTOPKG_OUTPUT" # Print full output for debugging
+
+          # Extract the download path to the .zip file from the AutoPkg output.
+          # This uses sed to find the "URLDownloader: Downloaded " line and extract the path.
+          VSCODE_ZIP_PATH=$(echo "$AUTOPKG_OUTPUT" | sed -n 's/^.*URLDownloader: Downloaded \(.*\)/\1/p' | head -n 1 | xargs)
+
+          if [ -z "$VSCODE_ZIP_PATH" ]; then
+            echo "::error ::Could not extract Visual Studio Code ZIP installer path from AutoPkg output."
+            echo "Full AutoPkg output for debugging:"
+            echo "$AUTOPKG_OUTPUT" # Re-print full output if extraction fails
+            exit 1
+          fi
+
+          echo "Found Visual Studio Code ZIP installer at: $VSCODE_ZIP_PATH"
+          echo "VSCODE_ZIP_PATH=$VSCODE_ZIP_PATH" >> $GITHUB_ENV # Set as env var for subsequent steps
+
+      - name: Extract Visual Studio Code.app from ZIP
+        id: extract_app
+        run: |
+          # Define a temporary directory for extracting the app
+          APP_EXTRACT_DIR="/private/tmp/VSCodeAppExtract_$(uuidgen)"
+          echo "Extracting Visual Studio Code.app to: $APP_EXTRACT_DIR"
+          mkdir -p "$APP_EXTRACT_DIR"
+          
+          # Unzip the downloaded archive into the temporary directory
+          unzip -q "${{ env.VSCODE_ZIP_PATH }}" -d "$APP_EXTRACT_DIR" || { echo "::error ::Failed to unzip Visual Studio Code archive."; exit 1; }
+
+          # Find the Visual Studio Code.app bundle within the extracted contents
+          # It's usually directly inside the unzipped folder
+          VSCODE_APP_PATH=$(find "$APP_EXTRACT_DIR" -type d -name "Visual Studio Code.app" | head -n 1)
+
+          if [ -z "$VSCODE_APP_PATH" ]; then
+            echo "::error ::Visual Studio Code.app not found in extracted ZIP at $APP_EXTRACT_DIR."
+            ls -laR "$APP_EXTRACT_DIR" || true # Debug contents of extracted dir
+            exit 1
+          fi
+          echo "Found Visual Studio Code.app at: $VSCODE_APP_PATH"
+          
+          # Set the path to the extracted app as an environment variable for subsequent steps
+          echo "VSCODE_APP_PATH=$VSCODE_APP_PATH" >> $GITHUB_ENV
+          echo "APP_EXTRACT_DIR=$APP_EXTRACT_DIR" >> $GITHUB_OUTPUT # Export for cleanup
+
+      - name: Extract Bundle ID and Version for Intune
+        id: extract_info
+        run: |
+          # Ensure VSCODE_APP_PATH is available from environment (set by previous step)
+          if [ -z "${{ env.VSCODE_APP_PATH }}" ]; then
+            echo "::error ::VSCODE_APP_PATH environment variable is missing for Info.plist extraction."
+            exit 1
+          fi
+
+          INFO_PLIST_PATH="${{ env.VSCODE_APP_PATH }}/Contents/Info.plist"
+          
+          if [ ! -f "$INFO_PLIST_PATH" ]; then
+            echo "::error ::Info.plist not found for Visual Studio Code.app at $INFO_PLIST_PATH"
+            exit 1
+          fi
+
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO_PLIST_PATH")
+          APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO_PLIST_PATH")
+
+          echo "Extracted Bundle ID: $BUNDLE_ID"
+          echo "Extracted App Version: $APP_VERSION"
+
+          # Create a file with the Intune relevant information.
+          INFO_FILE="vscode_intune_info_macos.txt"
+          echo "--- Visual Studio Code (macOS) Intune Details ---" > "$INFO_FILE"
+          echo "Bundle ID (for Detection Rules): $BUNDLE_ID" >> "$INFO_FILE"
+          echo "Version (for Display/Detection): $APP_VERSION" >> "$INFO_FILE"
+          echo "" >> "$INFO_FILE"
+          # For .app bundles, the install command is usually just copying it.
+          # Intune LOB apps for .app will handle this automatically.
+          echo "Recommended Install Location: /Applications/Visual Studio Code.app" >> "$INFO_FILE"
+          echo "Uninstall Command: /bin/rm -rf '/Applications/Visual Studio Code.app'" >> "$INFO_FILE"
+          echo "-------------------------------------------------" >> "$INFO_FILE"
+
+          echo "Intune info saved to $INFO_FILE"
+          ls -la "$INFO_FILE" # Show the created file in logs
+
+          # Make the path to the info file available as a step output for artifact upload.
+          echo "INFO_FILE=$INFO_FILE" >> $GITHUB_OUTPUT
+
+      - name: Upload the VSCode.app bundle as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-macos-app-bundle # Clearer artifact name
+          path: ${{ env.VSCODE_APP_PATH }} # Path to the Visual Studio Code.app bundle
+          retention-days: 7 # How long to keep the artifact
+
+      - name: Upload Intune info file for macOS VS Code as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-macos-intune-info # Clearer artifact name
+          path: ${{ steps.extract_info.outputs.INFO_FILE }} # Path to the info text file
+          retention-days: 7
+
+      - name: Clean up temporary app extraction directory
+        # This step cleans up the temporary directory where the app was extracted.
+        if: always() && steps.extract_app.outputs.APP_EXTRACT_DIR
+        run: |
+          echo "Cleaning up temporary app extraction directory: ${{ steps.extract_app.outputs.APP_EXTRACT_DIR }}"
+          sudo rm -rf "${{ steps.extract_app.outputs.APP_EXTRACT_DIR }}" || true
