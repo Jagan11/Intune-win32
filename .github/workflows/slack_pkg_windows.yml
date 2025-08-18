@@ -1,9 +1,11 @@
-name: Package Slack as IntuneWin stable release
+name: Package Apps as IntuneWin windows release
 
 on:
   workflow_dispatch: # Allows manual triggering of the workflow
 
 jobs:
+  # ... (other jobs like vscode, chrome, edge, nodejs, git, telegram) ...
+
   slack:
     runs-on: windows-latest
     steps:
@@ -17,13 +19,37 @@ jobs:
         run: |
           # This URL from the official Slack website downloads the latest stable 64-bit EXE installer.
           $downloadUrl = "https://slack.com/ssb/download-win64"
+          $outputPath = "input\SlackSetup.exe" # Define the output path for clarity
+
           Write-Host "Downloading Slack from: $downloadUrl"
-          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\SlackSetup.exe"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $outputPath -ErrorAction Stop
+
+          # --- Start File Checks ---
+          # 1. Check if the file exists
+          if (-not (Test-Path $outputPath)) {
+              Write-Error "Error: Slack installer package '$outputPath' missing after download!"
+              exit 1 # Exit with error if file not found
+          }
+
+          # 2. Check if the file is not empty (size greater than 0 bytes)
+          $fileSize = (Get-Item $outputPath).Length
+          Write-Host "Downloaded Slack installer size: $fileSize bytes"
+          if ($fileSize -eq 0) {
+              Write-Error "Error: Slack installer package '$outputPath' is empty after download!"
+              exit 1 # Exit with error if file is empty
+          }
+          # --- End File Checks ---
 
       - name: Get Slack installer version and set as environment variable
         shell: pwsh
         run: |
-          $version = (Get-Item "input\SlackSetup.exe").VersionInfo.ProductVersion
+          $installerPath = "input\SlackSetup.exe"
+          # Adding a check here too, in case previous check was missed or file was deleted
+          if (-not (Test-Path $installerPath)) {
+              Write-Error "SlackSetup.exe not found at $installerPath for version check."
+              exit 1
+          }
+          $version = (Get-Item $installerPath).VersionInfo.ProductVersion
           Write-Host "Slack installer version: $version"
           echo "SLACK_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
@@ -31,15 +57,37 @@ jobs:
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+          if (-not (Test-Path "IntuneWinAppUtil.exe")) {
+              Write-Error "IntuneWinAppUtil.exe not downloaded."
+              exit 1
+          }
 
       - name: Package Slack using IntuneWinAppUtil
         shell: pwsh
         run: |
-          .\IntuneWinAppUtil.exe -c ".\input" -s "SlackSetup.exe" -o ".\output" -q
-          $originalFileName = "output\SlackSetup.intunewin"
-          $newName = "Slack-win-x64-$env:SLACK_VERSION.intunewin"
-          Rename-Item -Path $originalFileName -NewName $newName -Force
-          Write-Host "Renamed $originalFileName to $newName"
+          $installerFileName = "SlackSetup.exe"
+          $originalOutputPath = ".\output\SlackSetup.intunewin"
+          $finalFileName = "Slack-win-x64-$env:SLACK_VERSION.intunewin"
+          $finalOutputPath = ".\output\$finalFileName"
+
+          # Run the IntuneWinAppUtil to package the application.
+          # -c: content folder (.\input)
+          # -s: setup file (SlackSetup.exe)
+          # -o: output folder (.\output)
+          # -q: quiet mode (no prompts)
+          .\IntuneWinAppUtil.exe -c ".\input" -s "$installerFileName" -o ".\output" -q
+
+          if (-not (Test-Path $originalOutputPath)) {
+              Write-Error "Failed to create IntuneWin package at $originalOutputPath."
+              exit 1
+          }
+          
+          # Rename the generated .intunewin file for clarity.
+          Rename-Item -Path $originalOutputPath -NewName $finalFileName -Force
+          Write-Host "Renamed $originalOutputPath to $finalFileName"
+
+          # Set output variable for the final package path
+          echo "INTUNEWIN_PACKAGE_PATH=$finalOutputPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Upload Slack package as artifact
         uses: actions/upload-artifact@v4
