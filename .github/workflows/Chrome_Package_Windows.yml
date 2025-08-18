@@ -1,0 +1,132 @@
+name: Build Google Chrome Package (Windows)
+
+on:
+  workflow_dispatch: # Allows manual triggering of the workflow
+
+jobs:
+  chrome:
+    runs-on: windows-latest # This job runs on a Windows runner
+
+    steps:
+      - name: Create directories
+        run: |
+          New-Item -Path input -ItemType Directory -Force
+          New-Item -Path output -ItemType Directory -Force
+
+      - name: Download latest Chrome stable x64 Standalone Installer
+        shell: pwsh
+        run: |
+          # This URL typically provides the latest stable version of Google Chrome standalone installer.
+          $downloadUrl = "https://dl.google.com/chrome/install/latest/chrome_installer.exe"
+          Write-Host "Downloading Chrome from: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\ChromeSetup.exe"
+
+      - name: Get Google Chrome installer version and set as environment variable
+        shell: pwsh
+        run: |
+          $installerPath = "input\ChromeSetup.exe"
+          if (-not (Test-Path $installerPath)) {
+              Write-Error "ChromeSetup.exe not found at $installerPath."
+              exit 1
+          }
+          $version = (Get-Item $installerPath).VersionInfo.ProductVersion
+          Write-Host "Google Chrome installer version: $version"
+          echo "CHROME_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Download Microsoft Win32 Content Prep Tool
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+          if (-not (Test-Path "IntuneWinAppUtil.exe")) {
+              Write-Error "IntuneWinAppUtil.exe not downloaded."
+              exit 1
+          }
+
+      - name: Package Chrome using IntuneWinAppUtil
+        shell: pwsh
+        run: |
+          $installerFileName = "ChromeSetup.exe"
+          $originalOutputPath = ".\output\ChromeSetup.intunewin"
+          $finalFileName = "GoogleChrome-win-x64-$env:CHROME_VERSION.intunewin"
+          $finalOutputPath = ".\output\$finalFileName"
+
+          # Run the IntuneWinAppUtil to package the application.
+          # -c: content folder (.\input)
+          # -s: setup file (ChromeSetup.exe)
+          # -o: output folder (.\output)
+          # -q: quiet mode (no prompts)
+          .\IntuneWinAppUtil.exe -c ".\input" -s "$installerFileName" -o ".\output" -q
+
+          if (-not (Test-Path $originalOutputPath)) {
+              Write-Error "Failed to create IntuneWin package at $originalOutputPath."
+              exit 1
+          }
+          
+          # Rename the generated .intunewin file for clarity.
+          Rename-Item -Path $originalOutputPath -NewName $finalFileName -Force
+          Write-Host "Renamed $originalOutputPath to $finalOutputPath"
+
+          # Set output variable for the final package path
+          echo "INTUNEWIN_PACKAGE_PATH=$finalOutputPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Prepare Intune Detection Info for Chrome
+        id: prepare_detection_info
+        shell: pwsh
+        run: |
+          # Define the typical installation path for Google Chrome.
+          # This path assumes a standard installation for all users.
+          $chromeInstallPath = "$env:ProgramFiles (x86)\Google\Chrome\Application"
+          $chromeExePath = "$chromeInstallPath\chrome.exe" # The main executable that holds the version info.
+
+          # Get the current workflow's package version (from CHROME_VERSION env var)
+          $packageVersion = $env:CHROME_VERSION
+
+          # Create a file with the Intune detection information.
+          # This info will be crucial for setting up the app in Intune.
+          $infoFile = "chrome_intune_detection_info.txt"
+          @"
+          --- Google Chrome (Windows) Intune Details ---
+          
+          App Name: Google Chrome (x64)
+          Package Version: $packageVersion
+          
+          # Intune Installation Commands:
+          Install Command: ChromeSetup.exe /install
+          Uninstall Command: "%ProgramFiles(x86)%\Google\Chrome\Application\$packageVersion\Installer\setup.exe" --uninstall --multi-install --chrome --system-level --verbose-logging
+          
+          # Intune Detection Rule (REQUIRED for correct status in Company Portal):
+          # Rule Type: File
+          # Path: %ProgramFiles(x86)%\Google\Chrome\Application
+          # File or folder: chrome.exe
+          # Detection method: Version
+          # Operator: Greater than or equal to
+          # Value: $packageVersion
+          
+          # Notes:
+          # - The 'Install Command' points to the installer within the package.
+          # - The 'Uninstall Command' points to the version-specific uninstaller.
+          #   Ensure the uninstall command is accurate for your specific Chrome version.
+          # - For Detection, the path '%ProgramFiles(x86)%\Google\Chrome\Application' is standard.
+          # - The 'Value' for the version detection should match the detected package version.
+          ----------------------------------------------
+          "@ | Out-File -FilePath $infoFile -Encoding utf8
+
+          Write-Host "Intune detection info saved to $infoFile"
+          Get-Item $infoFile | Select-Object Name, Length # Show the created file details
+
+          # Make the info file path available as an output for artifact upload.
+          echo "INFO_FILE_PATH=$infoFile" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Upload Chrome IntuneWin package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: google-chrome-windows-intunewin # Clearer artifact name
+          path: ${{ env.INTUNEWIN_PACKAGE_PATH }} # Path to the generated .intunewin file
+          retention-days: 7
+
+      - name: Upload Intune detection info file as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: google-chrome-windows-intune-info # Clearer artifact name
+          path: ${{ steps.prepare_detection_info.outputs.INFO_FILE_PATH }} # Path to the info text file
+          retention-days: 7
