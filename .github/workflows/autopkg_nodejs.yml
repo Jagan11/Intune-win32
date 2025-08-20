@@ -1,0 +1,163 @@
+name: Build Node.js Package (for macOS Intune)
+
+on:
+  workflow_dispatch: # Allows manual triggering of the workflow
+
+jobs:
+  build:
+    runs-on: macos-latest # Specifies that this job runs on a macOS runner
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Show current working directory and recipes folder for debug
+        # Display current directory and contents of the 'recipes' folder for debugging purposes.
+        run: |
+          echo "Current working directory:"
+          pwd
+          echo "Repository root contents:"
+          ls -la
+          echo "Recipes folder contents:"
+          ls -la ./recipes || true # Add || true to prevent failure if folder is empty or not found
+
+      - name: Clean AutoPkg cached recipe repositories
+        # Remove old AutoPkg recipe caches to ensure a clean slate and avoid conflicts.
+        run: |
+          echo "Removing old AutoPkg recipe caches..."
+          rm -rf ~/Library/AutoPkg/Cache/* || true # Use || true to prevent failure if directory doesn't exist
+          rm -rf ~/Library/AutoPkg/RecipeRepos/* || true # Clear recipe repos cache
+          echo "Cache cleanup done."
+
+      - name: Download and install AutoPkg
+        # Download the AutoPkg installer package.
+        run: |
+          echo "Downloading AutoPkg installer..."
+          # Fetch the latest AutoPkg release information from GitHub API
+          LATEST_RELEASE_INFO=$(curl -sL https://api.github.com/repos/autopkg/autopkg/releases/latest)
+          AUTOPKG_PKG_URL=$(echo "$LATEST_RELEASE_INFO" | jq -r '.assets[] | select(.name | ends_with(".pkg")) | .browser_download_url')
+
+          if [ -z "$AUTOPKG_PKG_URL" ]; then
+            echo "Error: Could not find the latest AutoPkg .pkg download URL."
+            exit 1
+          fi
+
+          echo "Found AutoPkg PKG URL: $AUTOPKG_PKG_URL"
+          curl -L -o autopkg.pkg "$AUTOPKG_PKG_URL"
+
+          if [ ! -f autopkg.pkg ]; then
+            echo "Error: AutoPkg installer package missing!"
+            exit 1
+          fi
+
+          # Verify the downloaded file size to ensure it's not a partial download or error page.
+          filesize=$(stat -f%z autopkg.pkg)
+          echo "Installer package size: $filesize bytes"
+
+          if [ "$filesize" -lt 100000 ]; then # Minimum expected size for a valid installer (adjust if needed)
+            echo "Error: Installer package is suspiciously small; aborting."
+            exit 1
+          fi
+
+          # Install AutoPkg silently.
+          echo "Installing AutoPkg..."
+          sudo installer -pkg autopkg.pkg -target /
+          echo "AutoPkg version:"
+          autopkg version
+
+      - name: Add AutoPkg recipe repositories
+        # Add the official AutoPkg recipes repository. This contains many common app recipes, including Node.
+        run: |
+          echo "Adding official AutoPkg recipes repo..."
+          autopkg repo-add https://github.com/autopkg/recipes.git
+
+          echo "Listing all recipes to confirm..."
+          autopkg list-recipes
+
+      - name: Run Node.pkg recipe with verbose output
+        # Execute the Node.pkg recipe. This recipe will download the latest Node.js PKG
+        # and place it into AutoPkg's cache directory.
+        run: |
+          echo "Running Node.pkg recipe..."
+          autopkg run Node.pkg --verbose || { echo "::error ::Failed to run Node.pkg recipe."; exit 1; }
+          echo "Node.pkg recipe finished."
+
+      - name: Find and Set Node.js PKG Path
+        id: find_pkg
+        run: |
+          set -eux
+          RECIPE_CACHE_DIR="$HOME/Library/AutoPkg/Cache"
+          # The Node.pkg recipe usually places the PKG in a structure like:
+          # ~/Library/AutoPkg/Cache/com.github.autopkg.pkg.Node/downloads/Node-<version>.pkg
+          NODEJS_DOWNLOAD_DIR="$RECIPE_CACHE_DIR/com.github.autopkg.pkg.Node/downloads"
+          NODEJS_PKG_PATH=$(find "$NODEJS_DOWNLOAD_DIR" -name "Node-*.pkg" -type f | head -n 1)
+
+          if [ -z "$NODEJS_PKG_PATH" ]; then
+            echo "::error ::Node.js PKG not found in $NODEJS_DOWNLOAD_DIR."
+            echo "Contents of $NODEJS_DOWNLOAD_DIR for debugging:"
+            ls -la "$NODEJS_DOWNLOAD_DIR" || true
+            exit 1
+          fi
+
+          echo "Found Node.js PKG: $NODEJS_PKG_PATH"
+          echo "NODEJS_PKG_PATH=$NODEJS_PKG_PATH" >> $GITHUB_ENV # Set as environment variable for later steps
+
+      - name: Extract Package ID and Version for Intune
+        id: extract-info # Assign an ID to this step to reference its outputs later
+        run: |
+          set -eux
+          if [ -z "${{ env.NODEJS_PKG_PATH }}" ]; then
+            echo "::error ::NODEJS_PKG_PATH environment variable is missing for PKG info extraction."
+            exit 1
+          fi
+
+          PKG_FILE_PATH="${{ env.NODEJS_PKG_PATH }}"
+          
+          if [ ! -f "$PKG_FILE_PATH" ]; then
+            echo "::error ::Node.js PKG not found at $PKG_FILE_PATH"
+            exit 1
+          fi
+
+          # Extract Package ID
+          PACKAGE_ID=$(pkgutil --pkg-info-from-file "$PKG_FILE_PATH" | grep 'package-id:' | awk '{print $NF}')
+          # Extract Package Version
+          PKG_VERSION=$(pkgutil --pkg-info-from-file "$PKG_FILE_PATH" | grep 'version:' | awk '{print $NF}')
+
+          echo "Extracted Package ID: $PACKAGE_ID"
+          echo "Extracted PKG Version: $PKG_VERSION"
+
+          # Create a text file with Intune-relevant information.
+          INFO_FILE="nodejs_intune_info_macos.txt"
+          echo "--- Node.js (macOS) Intune Details ---" > "$INFO_FILE"
+          echo "Package ID (for Detection Rules): $PACKAGE_ID" >> "$INFO_FILE"
+          echo "Version (for Display/Detection): $PKG_VERSION" >> "$INFO_FILE"
+          echo "" >> "$INFO_FILE"
+          echo "Install Command: sudo installer -pkg $(basename "$PKG_FILE_PATH") -target /" >> "$INFO_FILE"
+          # Common uninstall paths for Node.js, these might need refinement based on exact install location.
+          # For a robust uninstall, consider a custom script that finds and removes the installed files.
+          echo "Uninstall Command: pkgutil --forget $PACKAGE_ID ; rm -rf /usr/local/bin/node /usr/local/bin/npm /usr/local/lib/node_modules /usr/local/include/node /usr/local/share/doc/node /usr/local/share/man/man1/node.1" >> "$INFO_FILE"
+          echo "Detection Method (Path): /usr/local/bin/node" >> "$INFO_FILE"
+          echo "Detection Method (Package ID): $PACKAGE_ID" >> "$INFO_FILE"
+          echo "------------------------------------" >> "$INFO_FILE"
+
+          echo "Intune info saved to $INFO_FILE"
+          ls -la "$INFO_FILE" # Show the created file in logs
+
+          # Make the path to the info file available as a step output for artifact upload.
+          echo "INFO_FILE=$INFO_FILE" >> $GITHUB_OUTPUT
+
+      - name: Upload the Node.js PKG as artifact
+        # Upload the created PKG installer.
+        uses: actions/upload-artifact@v4
+        with:
+          name: nodejs-macos-pkg # Name of the artifact
+          path: ${{ env.NODEJS_PKG_PATH }} # Path to the created PKG installer
+          retention-days: 7 # How long to keep the artifact
+
+      - name: Upload Intune info file as artifact
+        # Upload the text file containing Package ID and Version as a separate artifact.
+        uses: actions/upload-artifact@v4
+        with:
+          name: nodejs-macos-intune-info # Name of the artifact
+          path: ${{ steps.extract-info.outputs.INFO_FILE }} # Path to the info text file
+          retention-days: 7 # How long to keep the artifact
