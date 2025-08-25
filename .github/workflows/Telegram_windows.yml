@@ -1,29 +1,61 @@
-stages:
-  - package
+name: Package Telegram for Intune
 
-variables:
-  TELEGRAM_URL: "https://telegram.org/dl/desktop/win"  # Official Telegram Desktop download
-  INSTALLER_NAME: "tsetup.exe"
-  OUTPUT_DIR: "output"
+on:
+  workflow_dispatch:
 
-package-telegram:
-  stage: package
-  tags:
-    - windows
-  script:
-    - echo "📥 Downloading Telegram installer..."
-    - powershell -Command "Invoke-WebRequest -Uri $env:TELEGRAM_URL -OutFile $env:INSTALLER_NAME"
+jobs:
+  build:
+    runs-on: windows-latest
 
-    - echo "📂 Preparing directories..."
-    - mkdir Telegram
-    - move $env:INSTALLER_NAME Telegram\
+    steps:
+      - name: 📂 Create directories
+        run: |
+          mkdir input
+          mkdir output
 
-    - echo "📦 Packaging with IntuneWinAppUtil..."
-    - IntuneWinAppUtil.exe -c Telegram -s $env:INSTALLER_NAME -o $env:OUTPUT_DIR -q
+      - name: 📥 Download Telegram installer
+        run: |
+          Invoke-WebRequest -Uri "https://telegram.org/dl/desktop/win" -OutFile "input\TelegramSetup.exe"
 
-    - echo "✅ Telegram intunewin package created at $env:OUTPUT_DIR"
+      - name: 🔎 Extract Telegram version
+        id: get_version
+        run: |
+          $path = "input\TelegramSetup.exe"
+          $version = (Get-Item $path).VersionInfo.ProductVersion
+          if (-not $version) {
+            Write-Error "❌ Could not extract version from Telegram installer"
+            exit 1
+          }
+          echo "TELEGRAM_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "✅ Detected Telegram version: $version"
 
-  artifacts:
-    paths:
-      - $OUTPUT_DIR/*.intunewin
-    expire_in: 1 week
+      - name: 📥 Download IntuneWinAppUtil
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/releases/latest/download/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+
+      - name: 📦 Package Telegram into .intunewin
+        run: |
+          .\IntuneWinAppUtil.exe -c input -s TelegramSetup.exe -o output -q
+          $newName = "Telegram-win-x64-${{ env.TELEGRAM_VERSION }}.intunewin"
+          Rename-Item "output\TelegramSetup.intunewin" $newName -Force
+
+      - name: 📝 Generate detection info
+        run: |
+          $version = "${{ env.TELEGRAM_VERSION }}"
+          $content = @"
+App: Telegram Desktop
+Version: $version
+Install command: TelegramSetup.exe /silent
+Uninstall command: "%LocalAppData%\Telegram Desktop\uninstall.exe" /S
+Detection rule: File exists at %LocalAppData%\Telegram Desktop\Telegram.exe
+"@
+          $content | Out-File -FilePath "output\Telegram_detection_info.txt" -Encoding utf8
+          echo "✅ Detection info file generated"
+
+      - name: ⬆️ Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Telegram-Intune-Package
+          path: |
+            output\*.intunewin
+            output\Telegram_detection_info.txt
