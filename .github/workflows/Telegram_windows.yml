@@ -39,23 +39,8 @@ jobs:
           $newName = "Telegram-win-x64-${{ env.TELEGRAM_VERSION }}.intunewin"
           Rename-Item "output\TelegramSetup.intunewin" $newName -Force
 
-      - name: 📝 Generate detection info
-        run: |
-          $version = "${{ env.TELEGRAM_VERSION }}"
-          $content = @"
-App: Telegram Desktop
-Version: $version
-Install command: TelegramSetup.exe /silent
-Uninstall command: "%LocalAppData%\Telegram Desktop\uninstall.exe" /S
-Detection rule: File exists at %LocalAppData%\Telegram Desktop\Telegram.exe
-"@
-          $content | Out-File -FilePath "output\Telegram_detection_info.txt" -Encoding utf8
-          echo "✅ Detection info file generated"
-
       - name: ⬆️ Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Telegram-Intune-Package
-          path: |
-            output\*.intunewin
-            output\Telegram_detection_info.txt
+          path: output\*.intunewin
