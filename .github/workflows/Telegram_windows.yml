@@ -1,46 +1,67 @@
-name: Package Telegram for Intune
+name: Telegram Desktop (Windows) Intune App Package
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
+  package-telegram-desktop:
     runs-on: windows-latest
 
     steps:
-      - name: 📂 Create directories
+      - name: ⬇️ Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 📂 Create working directories
+        shell: pwsh
         run: |
-          mkdir input
-          mkdir output
+          New-Item -ItemType Directory -Path ".\input" -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path ".\output" -ErrorAction SilentlyContinue
 
       - name: 📥 Download Telegram installer
+        shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://telegram.org/dl/desktop/win" -OutFile "input\TelegramSetup.exe"
+          $installerUrl = "https://telegram.org/dl/desktop/win"
+          $outputFile = ".\input\TelegramDesktopSetup.exe"
+          Invoke-WebRequest -Uri $installerUrl -OutFile $outputFile -MaximumRedirection 5
+          if (-not (Test-Path $outputFile)) { throw "Download failed: Installer not found" }
+          $fileSize = (Get-Item $outputFile).Length
+          if ($fileSize -lt 50000000) { Write-Warning "Downloaded installer size is suspiciously small." }
 
       - name: 🔎 Extract Telegram version
         id: get_version
+        shell: pwsh
         run: |
-          $path = "input\TelegramSetup.exe"
-          $version = (Get-Item $path).VersionInfo.ProductVersion
-          if (-not $version) {
-            Write-Error "❌ Could not extract version from Telegram installer"
-            exit 1
-          }
+          $installer = ".\input\TelegramDesktopSetup.exe"
+          $version = (Get-Item $installer).VersionInfo.ProductVersion
+          if (-not $version) { throw "Could not extract version" }
           echo "TELEGRAM_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
-          echo "✅ Detected Telegram version: $version"
 
       - name: 📥 Download IntuneWinAppUtil
+        shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/releases/latest/download/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+          $url = "https://raw.githubusercontent.com/microsoft/Microsoft-Win32-Content-Prep-Tool/main/IntuneWinAppUtil.exe"
+          Invoke-WebRequest -Uri $url -OutFile ".\IntuneWinAppUtil.exe"
+          if (-not (Test-Path ".\IntuneWinAppUtil.exe")) { throw "Failed to download IntuneWinAppUtil.exe" }
 
       - name: 📦 Package Telegram into .intunewin
+        shell: pwsh
         run: |
-          .\IntuneWinAppUtil.exe -c input -s TelegramSetup.exe -o output -q
-          $newName = "Telegram-win-x64-${{ env.TELEGRAM_VERSION }}.intunewin"
-          Rename-Item "output\TelegramSetup.intunewin" $newName -Force
+          & ".\IntuneWinAppUtil.exe" -c ".\input" -s "TelegramDesktopSetup.exe" -o ".\output" -q
+          $version = $env:TELEGRAM_VERSION
+          $intunewin = Get-ChildItem -Path ".\output" -Filter "*.intunewin" | Select-Object -First 1
+          if (-not $intunewin) { throw ".intunewin file not found" }
+          Rename-Item $intunewin.FullName ".\output\Telegram-win-x64-$version.intunewin" -Force
+          echo "TELEGRAM_INTUNEWIN_PATH=.\output\Telegram-win-x64-$version.intunewin" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: ⬆️ Upload artifacts
+      - name: ⬆️ Upload Telegram .intunewin package as artifact
         uses: actions/upload-artifact@v4
         with:
           name: Telegram-Intune-Package
-          path: output\*.intunewin
+          path: output/*.intunewin
+          retention-days: 7
+          
+      - name: 🧹 Clean up temporary directories
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -Path ".\input", ".\output", ".\IntuneWinAppUtil.exe" -Recurse -Force -ErrorAction SilentlyContinue
