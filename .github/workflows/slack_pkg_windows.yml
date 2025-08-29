@@ -22,15 +22,20 @@ jobs:
       - name: 📥 Download Slack MSIX installer
         shell: pwsh
         run: |
-          # IMPORTANT: The URL below MUST be replaced with a valid and direct link
-          # to your Slack MSIX package. The 'https://your-secure-storage.example.com/slack-desktop-win64.msix'
-          # is a placeholder and will cause a "No such host is known" error.
-          # You need to host your MSIX package somewhere accessible (e.g., internal file share, Azure Blob Storage, or a direct download link from Slack).
-          #
+          # Option 1 (Recommended): Use Slack's official MSIX download link.
+          # This URL is designed to trigger an MSIX download from Slack's servers.
+          # It should handle redirects correctly, but verify its behavior.
+          $msixUrl = "https://slack.com/downloads/instructions/windows?ddl=1&build=win64_msix"
+          
+          # Option 2 (Alternative): If you have the MSIX stored in a secure, accessible location (e.g., Azure Blob Storage, internal file share)
+          # Replace the URL below with your actual direct download link if you host it.
           # Example: $msixUrl = "https://your-company-storage.com/path/to/Slack-win64.msix"
-          #
-          # For testing, you might temporarily use a known public download if available, but ensure it's a direct MSIX.
-          $msixUrl = "https://your-secure-storage.example.com/slack-desktop-win64.msix" # REPLACE THIS PLACEHOLDER!
+          
+          # Option 3 (Less Ideal for Binaries, but viable): If you commit the MSIX directly to your GitHub repository
+          # You would comment out this entire 'Download Slack MSIX installer' step and
+          # ensure the MSIX is committed to '.\input\slack-desktop-win64.msix'
+          # A subsequent step would then just verify its presence, not download it.
+
           $outputFile = ".\input\slack-desktop-win64.msix" # Naming it directly as .msix
           Write-Host "Downloading Slack MSIX from $msixUrl to $outputFile..."
           try {
