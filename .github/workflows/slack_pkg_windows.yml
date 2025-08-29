@@ -49,32 +49,30 @@ jobs:
           Rename-Item -Path $originalFile -NewName "$outputFolder\Slack-win-x64-$slackVersion.msix" -Force
           echo "SLACK_MSIX_PACKAGE_PATH=$outputFolder\Slack-win-x64-$slackVersion.msix" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: 📝 Generate Intune App Details File for MSIX
-        id: generate_info
-        shell: pwsh
-        run: |
-          $slackVersion = $env:SLACK_VERSION
-          $packageFamilyName = "{YOUR_SLACK_MSIX_PACKAGE_FAMILY_NAME}" # REPLACE THIS!
-
-          $infoFile = "slack_intune_msix_details.txt"
-          $content = @"
---- Slack Desktop (Windows) Intune App Details (MSIX) ---
-App Type: Line-of-business app (or Microsoft Store app (new) if from Store)
-Display Name: Slack
-Publisher: Slack Technologies, Inc.
-Version: $slackVersion
-Install Command: Handled by Intune for MSIX
-Uninstall Command: Handled by Intune for MSIX
-Detection Rule (MSIX):
-  Package Family Name: $packageFamilyName
-  Minimum Version: $slackVersion
-Minimum OS Version: Windows 10 1709 (MSIX support generally good from this version)
----------------------------------------------------------
-"@
-
-          $content | Out-File -FilePath $infoFile -Encoding UTF8
-          Write-Host "Intune MSIX app details saved to $infoFile"
-          echo "INFO_FILE_PATH=$infoFile" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+#      - name: 📝 Generate Intune App Details File for MSIX
+#        id: generate_info
+#        shell: pwsh
+#        run: |
+#          $slackVersion = $env:SLACK_VERSION
+#          $packageFamilyName = "{YOUR_SLACK_MSIX_PACKAGE_FAMILY_NAME}" # REPLACE THIS!
+#          $infoFile = "slack_intune_msix_details.txt"
+#          $content = @"
+# --- Slack Desktop (Windows) Intune App Details (MSIX) ---
+# App Type: Line-of-business app (or Microsoft Store app (new) if from Store)
+# Display Name: Slack
+# Publisher: Slack Technologies, Inc.
+# Version: $slackVersion
+# Install Command: Handled by Intune for MSIX
+# Uninstall Command: Handled by Intune for MSIX
+# Detection Rule (MSIX):
+#   Package Family Name: $packageFamilyName
+#   Minimum Version: $slackVersion
+# Minimum OS Version: Windows 10 1709 (MSIX support generally good from this version)
+# ---------------------------------------------------------
+# "@
+#          $content | Out-File -FilePath $infoFile -Encoding UTF8
+#          Write-Host "✅ Intune MSIX app details saved to $infoFile"
+#          echo "INFO_FILE_PATH=$infoFile" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: ⬆️ Upload Slack .msix package as artifact
         uses: actions/upload-artifact@v4
@@ -83,12 +81,12 @@ Minimum OS Version: Windows 10 1709 (MSIX support generally good from this versi
           path: output/*.msix
           retention-days: 7
 
-      - name: ⬆️ Upload Intune details file as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Slack-Intune-MSIX-Details
-          path: slack_intune_msix_details.txt
-          retention-days: 7
+#      - name: ⬆️ Upload Intune details file as artifact
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: Slack-Intune-MSIX-Details
+#          path: slack_intune_msix_details.txt
+#          retention-days: 7
 
       - name: 🧹 Clean up temporary directories
         if: always()
