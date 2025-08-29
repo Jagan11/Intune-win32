@@ -94,15 +94,25 @@ jobs:
           $outputFolder = ".\output"
           $slackVersion = $env:SLACK_VERSION
 
+          # Add a check for 'Unknown' version to prevent invalid filenames
+          if ($slackVersion -eq "Unknown") {
+              Write-Error "❌ Cannot rename package: Slack version could not be reliably extracted. Please check the download URL or filename pattern."
+              exit 1
+          }
+
           if (-not (Test-Path $originalFile)) { # Added robustness check
-              Write-Error "❌ Slack MSIX package not found for renaming."
+              Write-Error "❌ Slack MSIX package not found for moving and renaming."
               exit 1
           }
 
           $newName = "Slack-win-x64-${slackVersion}.msix"
-          Rename-Item -Path $originalFile -NewName "$outputFolder\$newName" -Force
+          $destinationPath = "$outputFolder\$newName"
 
-          $msixPackagePath = "$outputFolder\$newName"
+          Write-Host "Moving and renaming '$originalFile' to '$destinationPath'..."
+          # FIX: Use Move-Item when changing directory and renaming simultaneously
+          Move-Item -Path $originalFile -Destination $destinationPath -Force
+
+          $msixPackagePath = $destinationPath
           Write-Host "✅ Slack MSIX package prepared successfully: $msixPackagePath" # Re-added Write-Host
           echo "SLACK_MSIX_PACKAGE_PATH=$msixPackagePath" | Out-File -FilePath $env:GITHUB_ENV -Append # Set as env var
 
