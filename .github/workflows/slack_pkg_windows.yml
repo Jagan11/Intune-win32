@@ -1,54 +1,152 @@
-name: Build and Package Slack MSI for Intune
+name: Slack Desktop (Windows) Intune MSIX Package
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Allows manual triggering of the workflow
 
 jobs:
-  package-slack:
-    runs-on: windows-latest
+  package-slack-msix: # Renamed job to reflect MSIX packaging
+    runs-on: windows-latest # This job runs on a Windows runner
+
     steps:
-      - name: Create directories
-        run: |
-          New-Item -Path input -ItemType Directory -Force
-          New-Item -Path output -ItemType Directory -Force
+      - name: ⬇️ Checkout repository
+        uses: actions/checkout@v4 # Check out your repository code
 
-      - name: Download Slack MSI installer
+      - name: 📂 Create working directories
         shell: pwsh
         run: |
-          # Replace this URL with the official Slack MSI download link
-          $url = "https://downloads.slack-edge.com/releases_x64/slack-setup-latest.msi"
-          Write-Host "Downloading Slack MSI from $url"
-          Invoke-WebRequest -Uri $url -OutFile "input\\slack-setup.msi"
+          Write-Host "Creating necessary directories..."
+          New-Item -ItemType Directory -Path ".\input" -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path ".\output" -ErrorAction SilentlyContinue
+          Write-Host "Directories created."
 
-      - name: Get Slack MSI version
+      - name: 📥 Download Slack MSIX installer
         shell: pwsh
         run: |
-          $version = (Get-Item "input\\slack-setup.msi").VersionInfo.ProductVersion
-          Write-Host "Slack MSI version: $version"
-          echo "SLACK_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          # Using the provided URL which targets an MSIX package.
+          # This URL might redirect, so MaximumRedirection is used.
+          $msixUrl = "https://slack.com/downloads/instructions/windows?ddl=1&build=win64_msix"
+          $outputFile = ".\input\slack-desktop-win64.msix" # Naming it directly as .msix
+          Write-Host "Downloading Slack MSIX from $msixUrl to $outputFile..."
+          try {
+            Invoke-WebRequest -Uri $msixUrl -OutFile $outputFile -MaximumRedirection 5
+            
+            if (-not (Test-Path $outputFile)) {
+              throw "Downloaded file not found at $outputFile."
+            }
+            # Verify the file is an MSIX (or similar package type)
+            if ((Get-Item $outputFile).Extension -notin @(".msix", ".appx", ".appxbundle")) {
+              Write-Warning "Downloaded file does not have a typical MSIX/APPX extension. Please verify."
+            }
+            $fileSize = (Get-Item $outputFile).Length
+            Write-Host "Installer package size: $fileSize bytes."
+            if ($fileSize -lt 10000000) { # Adjust minimum expected size for an MSIX package
+              Write-Warning "Warning: Downloaded MSIX package is suspiciously small; please verify the download."
+            }
+            Write-Host "✅ Slack MSIX installer downloaded successfully."
+          } catch {
+            Write-Error "❌ Failed to download Slack MSIX installer: $($_.Exception.Message)"
+            exit 1
+          }
 
-      - name: Download Microsoft Win32 Content Prep Tool
+      - name: 🔎 Get Slack MSIX version
+        id: get_version
         shell: pwsh
         run: |
-          $toolUrl = "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/releases/latest/download/IntuneWinAppUtil.exe"
-          Write-Host "Downloading Microsoft Win32 Content Prep Tool from $toolUrl"
-          Invoke-WebRequest -Uri $toolUrl -OutFile "IntuneWinAppUtil.exe"
-          if (-not (Test-Path "IntuneWinAppUtil.exe")) {
-              Write-Error "IntuneWinAppUtil.exe not downloaded."
+          $path = ".\input\slack-desktop-win64.msix"
+          if (-not (Test-Path $path)) {
+            Write-Error "❌ Slack MSIX installer not found for version extraction."
+            exit 1
+          }
+          # MSIX files typically have version info in their manifest
+          $package = Get-AppxPackage -AllUsers | Where-Object { $_.Path -eq $path } # This command won't work on non-installed packages directly
+          # A more robust way to get version from a *file* without installing is more complex.
+          # For now, we'll try to parse from the filename or assume basic info.
+          
+          # Simplified version extraction from filename (common for downloaded packages)
+          $fileName = (Get-Item $path).BaseName
+          $version = ""
+          if ($fileName -match "slack-(\d+\.\d+\.\d+\.\d+)") { # Match typical MSIX version format
+              $version = $Matches[1]
+              Write-Host "Detected version from filename: $version"
+          } elseif ($fileName -match "(\d+\.\d+\.\d+\.\d+)") { # General version pattern
+              $version = $Matches[1]
+              Write-Host "Detected version from filename (generic): $version"
+          } else {
+              Write-Warning "Could not reliably extract version from MSIX filename. Using 'Unknown'."
+              $version = "Unknown"
+          }
+
+          # Set SLACK_VERSION as an environment variable for subsequent steps
+          echo "SLACK_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "✅ Detected Slack MSIX version: $version"
+
+      - name: 📦 Rename Slack MSIX package
+        shell: pwsh
+        run: |
+          $originalFile = ".\input\slack-desktop-win64.msix"
+          $outputFolder = ".\output"
+          $slackVersion = $env:SLACK_VERSION
+
+          if (-not (Test-Path $originalFile)) {
+              Write-Error "❌ Slack MSIX package not found for renaming."
               exit 1
           }
 
-      - name: Package Slack MSI to IntuneWin format
+          $newName = "Slack-win-x64-${slackVersion}.msix"
+          Rename-Item -Path $originalFile -NewName "$outputFolder\$newName" -Force
+
+          $msixPackagePath = "$outputFolder\$newName"
+          Write-Host "✅ Slack MSIX package prepared successfully: $msixPackagePath"
+          echo "SLACK_MSIX_PACKAGE_PATH=$msixPackagePath" | Out-File -FilePath $env:GITHUB_ENV -Append # Set as env var
+
+      - name: 📝 Generate Intune App Details File for MSIX
+        id: generate_info
         shell: pwsh
         run: |
-          .\IntuneWinAppUtil.exe -c ".\input" -s "slack-setup.msi" -o ".\output" -q
-          $originalFile = "output\slack-setup.intunewin"
-          $newName = "Slack-win-x64-$env:SLACK_VERSION.intunewin"
-          Rename-Item -Path $originalFile -NewName $newName -Force
-          Write-Host "Renamed $originalFile to $newName"
+          $slackVersion = $env:SLACK_VERSION
+          # For MSIX apps, detection in Intune typically relies on Package Family Name and Minimum Version.
+          # You can find the Package Family Name (PFN) after installing the MSIX on a test machine
+          # using PowerShell: Get-AppxPackage -Name "Slack" | Select-Object PackageFamilyName
+          $packageFamilyName = "{YOUR_SLACK_MSIX_PACKAGE_FAMILY_NAME}" # IMPORTANT: REPLACE THIS PLACEHOLDER!
 
-      - name: Upload Slack intunewin package as artifact
+          $infoFile = "slack_intune_msix_details.txt"
+
+          @"
+--- Slack Desktop (Windows) Intune App Details (MSIX) ---
+App Type: Line-of-business app (or Microsoft Store app (new) if from Store)
+Display Name: Slack
+Publisher: Slack Technologies, Inc.
+Version: $slackVersion
+Install Command: Handled by Intune for MSIX
+Uninstall Command: Handled by Intune for MSIX
+Detection Rule (MSIX):
+  Package Family Name: $packageFamilyName
+  Minimum Version: $slackVersion (or specific build if needed)
+Minimum OS Version: Windows 10 1709 (MSIX support is generally good from this version)
+---------------------------------------------------------
+"@ | Out-File -FilePath $infoFile -Encoding UTF8
+
+          Write-Host "✅ Intune MSIX app details saved to $infoFile"
+          echo "INFO_FILE_PATH=$infoFile" | Out-File -FilePath $env:GITHUB_OUTPUT -Append # Make path available for artifact upload
+
+      - name: ⬆️ Upload Slack .msix package as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: slack-intunewin
-          path: output/*.intunewin
+          name: Slack-Intune-MSIX-Package
+          path: output\*.msix # Upload the generated .msix file
+          retention-days: 7
+
+      - name: ⬆️ Upload Intune details file as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Slack-Intune-MSIX-Details
+          path: ${{ steps.generate_info.outputs.INFO_FILE_PATH }} # Path to the generated info text file
+          retention-days: 7
+
+      - name: 🧹 Clean up temporary directories
+        if: always() # Run even if previous steps failed
+        shell: pwsh
+        run: |
+          Write-Host "Cleaning up temporary directories..."
+          Remove-Item -Path ".\input", ".\output" -Recurse -Force -ErrorAction SilentlyContinue
+          Write-Host "Cleanup complete."
