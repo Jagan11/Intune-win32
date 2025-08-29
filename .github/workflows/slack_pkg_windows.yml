@@ -6,7 +6,6 @@ on:
 jobs:
   package-slack:
     runs-on: windows-latest
-
     steps:
       - name: Create directories
         run: |
@@ -31,7 +30,9 @@ jobs:
       - name: Download Microsoft Win32 Content Prep Tool
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+          $toolUrl = "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/releases/latest/download/IntuneWinAppUtil.exe"
+          Write-Host "Downloading Microsoft Win32 Content Prep Tool from $toolUrl"
+          Invoke-WebRequest -Uri $toolUrl -OutFile "IntuneWinAppUtil.exe"
           if (-not (Test-Path "IntuneWinAppUtil.exe")) {
               Write-Error "IntuneWinAppUtil.exe not downloaded."
               exit 1
@@ -41,10 +42,10 @@ jobs:
         shell: pwsh
         run: |
           .\IntuneWinAppUtil.exe -c ".\input" -s "slack-setup.msi" -o ".\output" -q
-          $originalFileName = "output\\slack-setup.intunewin"
+          $originalFile = "output\slack-setup.intunewin"
           $newName = "Slack-win-x64-$env:SLACK_VERSION.intunewin"
-          Rename-Item -Path $originalFileName -NewName $newName -Force
-          Write-Host "Renamed $originalFileName to $newName"
+          Rename-Item -Path $originalFile -NewName $newName -Force
+          Write-Host "Renamed $originalFile to $newName"
 
       - name: Upload Slack intunewin package as artifact
         uses: actions/upload-artifact@v4
