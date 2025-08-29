@@ -1,29 +1,31 @@
-name: Build Slack Windows Package
+name: Build and Package Slack MSI for Intune
 
 on:
   workflow_dispatch:
 
 jobs:
-  slack:
+  package-slack:
     runs-on: windows-latest
+
     steps:
       - name: Create directories
         run: |
           New-Item -Path input -ItemType Directory -Force
           New-Item -Path output -ItemType Directory -Force
 
-      - name: Download latest Slack for Windows installer
+      - name: Download Slack MSI installer
         shell: pwsh
         run: |
-          $downloadUrl = "https://slack.com/ssb/download-win64"
-          Write-Host "Downloading Slack from: $downloadUrl"
-          Invoke-WebRequest -Uri $downloadUrl -OutFile "input\\SlackSetup.exe"
+          # Replace this URL with the official Slack MSI download link
+          $url = "https://downloads.slack-edge.com/releases_x64/slack-setup-latest.msi"
+          Write-Host "Downloading Slack MSI from $url"
+          Invoke-WebRequest -Uri $url -OutFile "input\\slack-setup.msi"
 
-      - name: Get Slack installer version and set as environment variable
+      - name: Get Slack MSI version
         shell: pwsh
         run: |
-          $version = (Get-Item "input\\SlackSetup.exe").VersionInfo.ProductVersion
-          Write-Host "Slack installer version: $version"
+          $version = (Get-Item "input\\slack-setup.msi").VersionInfo.ProductVersion
+          Write-Host "Slack MSI version: $version"
           echo "SLACK_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Download Microsoft Win32 Content Prep Tool
@@ -35,16 +37,16 @@ jobs:
               exit 1
           }
 
-      - name: Package Slack using IntuneWinAppUtil
+      - name: Package Slack MSI to IntuneWin format
         shell: pwsh
         run: |
-          .\IntuneWinAppUtil.exe -c ".\input" -s "SlackSetup.exe" -o ".\output" -q
-          $originalFileName = "output\\SlackSetup.intunewin"
+          .\IntuneWinAppUtil.exe -c ".\input" -s "slack-setup.msi" -o ".\output" -q
+          $originalFileName = "output\\slack-setup.intunewin"
           $newName = "Slack-win-x64-$env:SLACK_VERSION.intunewin"
           Rename-Item -Path $originalFileName -NewName $newName -Force
           Write-Host "Renamed $originalFileName to $newName"
 
-      - name: Upload Slack package as artifact
+      - name: Upload Slack intunewin package as artifact
         uses: actions/upload-artifact@v4
         with:
           name: slack-intunewin
