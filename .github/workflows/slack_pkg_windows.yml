@@ -17,6 +17,7 @@ jobs:
           Write-Host "Creating necessary directories..."
           New-Item -ItemType Directory -Path ".\input" -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Path ".\output" -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path ".\temp" -ErrorAction SilentlyContinue # Temp for manifest extraction
           Write-Host "Directories created."
 
       - name: 📥 Download Slack MSIX installer
@@ -59,33 +60,50 @@ jobs:
             exit 1
           }
 
-      - name: 🔎 Get Slack MSIX version
+      - name: 🔎 Get Slack MSIX version from manifest
         id: get_version
         shell: pwsh
         run: |
-          $path = ".\input\slack-desktop-win64.msix"
-          if (-not (Test-Path $path)) { # Added robustness check
-            Write-Error "❌ Slack MSIX installer not found for version extraction."
+          $msixPath = ".\input\slack-desktop-win64.msix"
+          $tempManifestDir = ".\temp\manifest"
+          New-Item -ItemType Directory -Path $tempManifestDir -ErrorAction SilentlyContinue
+
+          if (-not (Test-Path $msixPath)) {
+            Write-Error "❌ Slack MSIX installer not found at '$msixPath' for version extraction."
             exit 1
           }
+
+          Write-Host "Extracting AppxManifest.xml from MSIX package..."
+          try {
+            # Use Expand-Archive to extract the manifest (or just the whole package to temp)
+            # MSIX/APPX packages are essentially ZIP files, but PowerShell's built-in
+            # Expand-Archive might not correctly handle them for manifest extraction directly.
+            # We'll use a more direct method by treating it as a ZIP for manifest.
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            [System.IO.Compression.ZipFile]::ExtractToDirectory($msixPath, $tempManifestDir)
+          } catch {
+            Write-Error "❌ Failed to extract MSIX package to temporary directory. Error: $($_.Exception.Message)"
+            exit 1
+          }
+
+          $manifestPath = "$tempManifestDir\AppxManifest.xml"
+          if (-not (Test-Path $manifestPath)) {
+            Write-Error "❌ AppxManifest.xml not found within the extracted MSIX package at '$manifestPath'."
+            exit 1
+          }
+
+          Write-Host "Parsing AppxManifest.xml for version..."
+          $xml = [xml](Get-Content $manifestPath)
+          $version = $xml.Package.Identity.Version
           
-          # Simplified version extraction from filename (common for downloaded packages)
-          $fileName = (Get-Item $path).BaseName
-          $version = ""
-          if ($fileName -match "slack-(\d+\.\d+\.\d+\.\d+)") { # Match typical MSIX version format
-              $version = $Matches[1]
-              Write-Host "Detected version from filename: $version"
-          } elseif ($fileName -match "(\d+\.\d+\.\d+\.\d+)") { # General version pattern
-              $version = $Matches[1]
-              Write-Host "Detected version from filename (generic): $version"
-          } else {
-              Write-Warning "Could not reliably extract version from MSIX filename. Using 'Unknown'."
-              $version = "Unknown"
+          if ([string]::IsNullOrEmpty($version)) {
+            Write-Error "❌ Could not extract version from AppxManifest.xml. Version attribute missing."
+            exit 1
           }
 
           # Set SLACK_VERSION as an environment variable for subsequent steps
           echo "SLACK_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "✅ Detected Slack MSIX version: $version" # Re-added Write-Host
+          Write-Host "✅ Detected Slack MSIX version from manifest: $version"
 
       - name: 📦 Rename Slack MSIX package
         shell: pwsh
@@ -94,9 +112,9 @@ jobs:
           $outputFolder = ".\output"
           $slackVersion = $env:SLACK_VERSION
 
-          # Add a check for 'Unknown' version to prevent invalid filenames
-          if ($slackVersion -eq "Unknown") {
-              Write-Error "❌ Cannot rename package: Slack version could not be reliably extracted. Please check the download URL or filename pattern."
+          # The check for 'Unknown' version is now less likely to trigger if manifest parsing is successful.
+          if ($slackVersion -eq "Unknown" -or [string]::IsNullOrEmpty($slackVersion)) {
+              Write-Error "❌ Cannot rename package: Slack version could not be reliably extracted. Please check the download URL or manifest."
               exit 1
           }
 
@@ -130,5 +148,5 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "Cleaning up temporary directories..."
-          Remove-Item -Path ".\input", ".\output" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path ".\input", ".\output", ".\temp" -Recurse -Force -ErrorAction SilentlyContinue # Include temp dir in cleanup
           Write-Host "Cleanup complete."
