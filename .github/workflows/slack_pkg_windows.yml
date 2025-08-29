@@ -29,12 +29,16 @@ jobs:
       - name: Download Microsoft Win32 Content Prep Tool
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/main/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+          Invoke-WebRequest -Uri "https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool/raw/2d0afcf7c1faf9c0f7dbd6db9c90b19f5dfec994/IntuneWinAppUtil.exe" -OutFile "IntuneWinAppUtil.exe"
+          if (-not (Test-Path "IntuneWinAppUtil.exe")) {
+              Write-Error "IntuneWinAppUtil.exe not downloaded."
+              exit 1
+          }
 
       - name: Package Slack using IntuneWinAppUtil
         shell: pwsh
         run: |
-          .\\IntuneWinAppUtil.exe -c ".\\input" -s "SlackSetup.exe" -o ".\\output" -q
+          .\IntuneWinAppUtil.exe -c ".\input" -s "SlackSetup.exe" -o ".\output" -q
           $originalFileName = "output\\SlackSetup.intunewin"
           $newName = "Slack-win-x64-$env:SLACK_VERSION.intunewin"
           Rename-Item -Path $originalFileName -NewName $newName -Force
